@@ -238,7 +238,7 @@ function findFfmpegPath() {
 }
 
 // Build yt-dlp arguments for download
-function buildDownloadArgs(url, outputPath, quality, selectedFormat = null, downloadType = 'full', startTime = null, endTime = null) {
+function buildDownloadArgs(url, outputPath, quality, selectedFormat = null, downloadType = 'full', startTime = null, endTime = null, audioOnly = false) {
   // Tham khảo từ app.py: thứ tự arguments và các options quan trọng
   const args = [
     '--no-playlist',
@@ -256,7 +256,12 @@ function buildDownloadArgs(url, outputPath, quality, selectedFormat = null, down
   ];
 
   // Add quality option - tham khảo chính xác từ app.py
-  if (selectedFormat) {
+  if (audioOnly) {
+    args.push('-f', 'bestaudio/best');
+    args.push('--extract-audio');
+    args.push('--audio-format', 'mp3');
+    args.push('--audio-quality', '0');
+  } else if (selectedFormat) {
     // Sử dụng format đã chọn từ list-formats
     args.push('-f', selectedFormat);
     // Force mp4 format và extension
@@ -368,7 +373,7 @@ function findDownloadedFile(folder, fileName) {
 
 // Download video with progress tracking
 function downloadVideo(options) {
-  const { url, folder, fileName, quality, taskId, downloadType, startTime, endTime } = options;
+  const { url, folder, fileName, quality, taskId, downloadType, startTime, endTime, audioOnly } = options;
   const taskKey = taskId !== undefined ? String(taskId) : Date.now().toString();
 
   return new Promise(async (resolve, reject) => {
@@ -377,7 +382,7 @@ function downloadVideo(options) {
 
       // Nếu có quality cụ thể (1080p, 720p, etc.), list formats và chọn format phù hợp
       let selectedFormat = null;
-      if (quality && quality.match(/^\d+p$/)) {
+      if (!audioOnly && quality && quality.match(/^\d+p$/)) {
         const height = parseInt(quality.replace('p', ''));
         try {
           selectedFormat = await selectBestFormat(url, height);
@@ -394,7 +399,9 @@ function downloadVideo(options) {
       // Build output path - force mp4 extension khi có selectedFormat
       // Nếu có selectedFormat (từ list-formats), đảm bảo output là mp4
       let outputPath;
-      if (selectedFormat) {
+      if (audioOnly) {
+        outputPath = path.join(folder, `${fileName}.mp3`);
+      } else if (selectedFormat) {
         // Khi dùng format ID cụ thể, force extension là mp4
         outputPath = path.join(folder, `${fileName}.mp4`);
       } else {
@@ -402,7 +409,7 @@ function downloadVideo(options) {
       }
 
       // Build yt-dlp arguments
-      const args = buildDownloadArgs(url, outputPath, quality, selectedFormat, downloadType, startTime, endTime);
+      const args = buildDownloadArgs(url, outputPath, quality, selectedFormat, downloadType, startTime, endTime, audioOnly);
 
       // Spawn yt-dlp process
       const downloadProcess = spawn(ytDlpPath, args, {

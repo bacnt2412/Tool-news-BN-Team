@@ -2743,6 +2743,7 @@ const downloadTypeRadios = document.querySelectorAll('input[name="download-type"
 const segmentOptions = document.getElementById('segment-options');
 const startTimeInput = document.getElementById('start-time');
 const endTimeInput = document.getElementById('end-time');
+const downloadAudioOnlyCheckbox = document.getElementById('download-audio-only');
 
 // Load download settings on page load
 async function loadDownloadSettings() {
@@ -2996,6 +2997,7 @@ startDownloadBtn.addEventListener('click', async () => {
     const folder = downloadFolderInput.value.trim();
     const namingPattern = namingPatternInput.value.trim();
     const downloadType = document.querySelector('input[name="download-type"]:checked').value;
+    const audioOnly = !!(downloadAudioOnlyCheckbox && downloadAudioOnlyCheckbox.checked);
     let startTime = startTimeInput.value.trim();
     let endTime = endTimeInput.value.trim();
 
@@ -3103,6 +3105,7 @@ startDownloadBtn.addEventListener('click', async () => {
                         status: 'waiting',
                         progress: 0,
                         error: null,
+                        audioOnly,
                         downloadType,
                         startTime: downloadType === 'segment' ? startTime : null,
                         endTime: downloadType === 'segment' ? endTime : null
@@ -3117,6 +3120,7 @@ startDownloadBtn.addEventListener('click', async () => {
                         status: 'waiting',
                         progress: 0,
                         error: null,
+                        audioOnly,
                         downloadType,
                         startTime: downloadType === 'segment' ? startTime : null,
                         endTime: downloadType === 'segment' ? endTime : null
@@ -3133,6 +3137,7 @@ startDownloadBtn.addEventListener('click', async () => {
                     status: 'waiting',
                     progress: 0,
                     error: null,
+                    audioOnly,
                     downloadType,
                     startTime: downloadType === 'segment' ? startTime : null,
                     endTime: downloadType === 'segment' ? endTime : null
@@ -3215,6 +3220,7 @@ startDownloadBtn.addEventListener('click', async () => {
             status: 'waiting',
             progress: 0,
             error: null,
+            audioOnly,
             downloadType,
             startTime: downloadType === 'segment' ? startTime : null,
             endTime: downloadType === 'segment' ? endTime : null
@@ -3238,6 +3244,7 @@ startDownloadBtn.addEventListener('click', async () => {
                     status: 'waiting',
                     progress: 0,
                     error: null,
+                    audioOnly,
                     downloadType,
                     startTime: downloadType === 'segment' ? startTime : null,
                     endTime: downloadType === 'segment' ? endTime : null
@@ -3325,6 +3332,7 @@ async function downloadVideo(task) {
             fileName: task.fileName,
             quality: quality,
             taskId: task.id,
+            audioOnly: !!task.audioOnly,
             downloadType: task.downloadType,
             startTime: task.startTime,
             endTime: task.endTime
