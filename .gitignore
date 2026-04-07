@@ -1,0 +1,14 @@
+node_modules/
+thumbnails/
+subtitles/
+cookies/
+*.log
+.DS_Store
+dist/
+build/
+*.exe
+*.dmg
+*.deb
+*.rpm
+*.AppImage
+

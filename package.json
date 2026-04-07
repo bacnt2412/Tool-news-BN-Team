@@ -1,0 +1,89 @@
+{
+  "name": "youtube-video-info-extractor",
+  "version": "1.1.0",
+  "description": "Ứng dụng Electron để lấy thông tin video YouTube",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder",
+    "build:win": "electron-builder --win",
+    "build:dir": "electron-builder --dir",
+    "build:win:dir": "electron-builder --win --dir",
+    "build:portable": "electron-builder --win portable"
+  },
+  "keywords": [
+    "electron",
+    "youtube",
+    "yt-dlp",
+    "video-info"
+  ],
+  "author": "BNTeam",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^26.0.12"
+  },
+  "dependencies": {
+    "@azure-rest/ai-vision-image-analysis": "^1.0.0-beta.3",
+    "@azure/core-auth": "^1.4.0",
+    "asynckit": "^0.4.0",
+    "axios": "^1.6.0",
+    "combined-stream": "^1.0.8",
+    "crypto": "^1.0.1",
+    "delayed-stream": "^1.0.0",
+    "electron-store": "^8.1.0",
+    "electron-updater": "^6.1.7",
+    "electron-log": "^5.0.1",
+    "form-data": "^4.0.4"
+  },
+  "build": {
+    "appId": "com.bnteam.youtube-video-info-extractor",
+    "productName": "YouTube Video Info Extractor",
+    "artifactName": "YouTube.Video.Info.Extractor-Setup-${version}.${ext}",
+    "icon": "build/icon.ico",
+    "directories": {
+      "output": "dist"
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "bacnt2412",
+      "repo": "Tool-news-BN-Team"
+    },
+    "asarUnpack": [
+      "bin/**"
+    ],
+    "extraResources": [
+      {
+        "from": "bin/",
+        "to": "bin",
+        "filter": [
+          "**/*"
+        ]
+      }
+    ],
+    "files": [
+      "**/*",
+      "!dist/**/*",
+      "!build/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.ico",
+      "forceCodeSigning": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    }
+  }
+}

@@ -1,0 +1,998 @@
+[
+  {
+    "language_name": "Nhật Bản - Voice Vox",
+    "language_code": "ja-JP",
+    "type": "VOICE_VOX",
+    "voices": [
+      {
+        "voice_name": "四国めたん (Shikoku Metan) - Bình thường",
+        "voice_code": 2,
+        "gender": "female"
+      },
+      {
+        "voice_name": "四国めたん (Shikoku Metan) - Ngọt ngào",
+        "voice_code": 0,
+        "gender": "female"
+      },
+      {
+        "voice_name": "四国めたん (Shikoku Metan) - Lạnh lùng",
+        "voice_code": 6,
+        "gender": "female"
+      },
+      {
+        "voice_name": "四国めたん (Shikoku Metan) - Quyến rũ",
+        "voice_code": 4,
+        "gender": "female"
+      },
+      {
+        "voice_name": "四国めたん (Shikoku Metan) - Thì thầm",
+        "voice_code": 36,
+        "gender": "female"
+      },
+      {
+        "voice_name": "四国めたん (Shikoku Metan) - Nói khẽ",
+        "voice_code": 37,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ずんだもん (Zundamon) - Bình thường",
+        "voice_code": 3,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ずんだもん (Zundamon) - Ngọt ngào",
+        "voice_code": 1,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ずんだもん (Zundamon) - Lạnh lùng",
+        "voice_code": 7,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ずんだもん (Zundamon) - Quyến rũ",
+        "voice_code": 5,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ずんだもん (Zundamon) - Thì thầm",
+        "voice_code": 22,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ずんだもん (Zundamon) - Nói khẽ",
+        "voice_code": 38,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ずんだもん (Zundamon) - Mệt mỏi",
+        "voice_code": 75,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ずんだもん (Zundamon) - Sắp khóc",
+        "voice_code": 76,
+        "gender": "female"
+      },
+      {
+        "voice_name": "春日部つむぎ (Kasukabe Tsumugi) - Bình thường",
+        "voice_code": 8,
+        "gender": "female"
+      },
+      {
+        "voice_name": "雨晴はう (Amahare Hau) - Bình thường",
+        "voice_code": 10,
+        "gender": "female"
+      },
+      {
+        "voice_name": "波音リツ (Namine Ritsu) - Bình thường",
+        "voice_code": 9,
+        "gender": "female"
+      },
+      {
+        "voice_name": "波音リツ (Namine Ritsu) - Nữ hoàng",
+        "voice_code": 65,
+        "gender": "female"
+      },
+      {
+        "voice_name": "玄野武宏 (Kurono Takehiro) - Bình thường",
+        "voice_code": 11,
+        "gender": "male"
+      },
+      {
+        "voice_name": "玄野武宏 (Kurono Takehiro) - Vui mừng",
+        "voice_code": 39,
+        "gender": "male"
+      },
+      {
+        "voice_name": "玄野武宏 (Kurono Takehiro) - Cáu kỉnh",
+        "voice_code": 40,
+        "gender": "male"
+      },
+      {
+        "voice_name": "玄野武宏 (Kurono Takehiro) - Buồn bã",
+        "voice_code": 41,
+        "gender": "male"
+      },
+      {
+        "voice_name": "白上虎太郎 (Shirakami Kotaro) - Bình thường",
+        "voice_code": 12,
+        "gender": "male"
+      },
+      {
+        "voice_name": "白上虎太郎 (Shirakami Kotaro) - Vui vẻ",
+        "voice_code": 32,
+        "gender": "male"
+      },
+      {
+        "voice_name": "白上虎太郎 (Shirakami Kotaro) - Sợ sệt",
+        "voice_code": 33,
+        "gender": "male"
+      },
+      {
+        "voice_name": "白上虎太郎 (Shirakami Kotaro) - Tức giận",
+        "voice_code": 34,
+        "gender": "male"
+      },
+      {
+        "voice_name": "白上虎太郎 (Shirakami Kotaro) - Khóc òa",
+        "voice_code": 35,
+        "gender": "male"
+      },
+      {
+        "voice_name": "青山龍星 (Aoyama Ryusei) - Bình thường",
+        "voice_code": 13,
+        "gender": "male"
+      },
+      {
+        "voice_name": "青山龍星 (Aoyama Ryusei) - Nhiệt huyết",
+        "voice_code": 81,
+        "gender": "male"
+      },
+      {
+        "voice_name": "青山龍星 (Aoyama Ryusei) - Khó chịu",
+        "voice_code": 82,
+        "gender": "male"
+      },
+      {
+        "voice_name": "青山龍星 (Aoyama Ryusei) - Vui mừng",
+        "voice_code": 83,
+        "gender": "male"
+      },
+      {
+        "voice_name": "青山龍星 (Aoyama Ryusei) - Trầm lắng",
+        "voice_code": 84,
+        "gender": "male"
+      },
+      {
+        "voice_name": "青山龍星 (Aoyama Ryusei) - Buồn",
+        "voice_code": 85,
+        "gender": "male"
+      },
+      {
+        "voice_name": "青山龍星 (Aoyama Ryusei) - Thì thầm",
+        "voice_code": 86,
+        "gender": "male"
+      },
+      {
+        "voice_name": "冥鳴ひまり (Meimei Himari) - Bình thường",
+        "voice_code": 14,
+        "gender": "female"
+      },
+      {
+        "voice_name": "九州そら (Kyushu Sora) - Bình thường",
+        "voice_code": 16,
+        "gender": "female"
+      },
+      {
+        "voice_name": "九州そら (Kyushu Sora) - Ngọt ngào",
+        "voice_code": 15,
+        "gender": "female"
+      },
+      {
+        "voice_name": "九州そら (Kyushu Sora) - Lạnh lùng",
+        "voice_code": 18,
+        "gender": "female"
+      },
+      {
+        "voice_name": "九州そら (Kyushu Sora) - Quyến rũ",
+        "voice_code": 17,
+        "gender": "female"
+      },
+      {
+        "voice_name": "九州そら (Kyushu Sora) - Thì thầm",
+        "voice_code": 19,
+        "gender": "female"
+      },
+      {
+        "voice_name": "もち子さん (Mochiko-san) - Bình thường",
+        "voice_code": 20,
+        "gender": "female"
+      },
+      {
+        "voice_name": "もち子さん (Mochiko-san) - Quyến rũ / Dịu dàng",
+        "voice_code": 66,
+        "gender": "female"
+      },
+      {
+        "voice_name": "もち子さん (Mochiko-san) - Khóc",
+        "voice_code": 77,
+        "gender": "female"
+      },
+      {
+        "voice_name": "もち子さん (Mochiko-san) - Giận dữ",
+        "voice_code": 78,
+        "gender": "female"
+      },
+      {
+        "voice_name": "もち子さん (Mochiko-san) - Vui mừng",
+        "voice_code": 79,
+        "gender": "female"
+      },
+      {
+        "voice_name": "もち子さん (Mochiko-san) - Thư thả",
+        "voice_code": 80,
+        "gender": "female"
+      },
+      {
+        "voice_name": "剣崎雌雄 (Kenzaki Meo) - Bình thường",
+        "voice_code": 21,
+        "gender": "male"
+      },
+      {
+        "voice_name": "WhiteCUL (WhiteCUL) - Bình thường",
+        "voice_code": 23,
+        "gender": "female"
+      },
+      {
+        "voice_name": "WhiteCUL (WhiteCUL) - Vui vẻ",
+        "voice_code": 24,
+        "gender": "female"
+      },
+      {
+        "voice_name": "WhiteCUL (WhiteCUL) - Buồn",
+        "voice_code": 25,
+        "gender": "female"
+      },
+      {
+        "voice_name": "WhiteCUL (WhiteCUL) - Khóc òa",
+        "voice_code": 26,
+        "gender": "female"
+      },
+      {
+        "voice_name": "後鬼 (Goki) - Giọng người",
+        "voice_code": 27,
+        "gender": "female"
+      },
+      {
+        "voice_name": "後鬼 (Goki) - Giọng thú bông",
+        "voice_code": 28,
+        "gender": "female"
+      },
+      {
+        "voice_name": "後鬼 (Goki) - Người (giận)",
+        "voice_code": 87,
+        "gender": "female"
+      },
+      {
+        "voice_name": "後鬼 (Goki) - Quỷ",
+        "voice_code": 88,
+        "gender": "female"
+      },
+      {
+        "voice_name": "No.7 (No.7) - Bình thường",
+        "voice_code": 29,
+        "gender": "female"
+      },
+      {
+        "voice_name": "No.7 (No.7) - Thông báo",
+        "voice_code": 30,
+        "gender": "female"
+      },
+      {
+        "voice_name": "No.7 (No.7) - Đọc truyện",
+        "voice_code": 31,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ちび式じい (Chibishiki-jii) - Bình thường",
+        "voice_code": 42,
+        "gender": "female"
+      },
+      {
+        "voice_name": "櫻歌ミコ (Ohka Miko) - Bình thường",
+        "voice_code": 43,
+        "gender": "female"
+      },
+      {
+        "voice_name": "櫻歌ミコ (Ohka Miko) - Hình dạng 2",
+        "voice_code": 44,
+        "gender": "female"
+      },
+      {
+        "voice_name": "櫻歌ミコ (Ohka Miko) - Loli",
+        "voice_code": 45,
+        "gender": "female"
+      },
+      {
+        "voice_name": "小夜/SAYO (Sayo) - Bình thường",
+        "voice_code": 46,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ナースロボ＿タイプＴ (Nurse Robo Type-T) - Bình thường",
+        "voice_code": 47,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ナースロボ＿タイプＴ (Nurse Robo Type-T) - Thoải mái",
+        "voice_code": 48,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ナースロボ＿タイプＴ (Nurse Robo Type-T) - Sợ hãi",
+        "voice_code": 49,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ナースロボ＿タイプＴ (Nurse Robo Type-T) - Nói nhỏ",
+        "voice_code": 50,
+        "gender": "female"
+      },
+      {
+        "voice_name": "†聖騎士 紅桜† (Seikishi Benizakura) - Bình thường",
+        "voice_code": 51,
+        "gender": "male"
+      },
+      {
+        "voice_name": "雀松朱司 (Suzumatsu Shuji) - Bình thường",
+        "voice_code": 52,
+        "gender": "male"
+      },
+      {
+        "voice_name": "麒ヶ島宗麟 (Kigashima Sourin) - Bình thường",
+        "voice_code": 53,
+        "gender": "male"
+      },
+      {
+        "voice_name": "春歌ナナ (Haruka Nana) - Bình thường",
+        "voice_code": 54,
+        "gender": "female"
+      },
+      {
+        "voice_name": "猫使アル (Nekotsukai Aru) - Bình thường",
+        "voice_code": 55,
+        "gender": "female"
+      },
+      {
+        "voice_name": "猫使アル (Nekotsukai Aru) - おちつき",
+        "voice_code": 56,
+        "gender": "female"
+      },
+      {
+        "voice_name": "猫使アル (Nekotsukai Aru) - うきうき",
+        "voice_code": 57,
+        "gender": "female"
+      },
+      {
+        "voice_name": "猫使アル (Nekotsukai Aru) - つよつよ",
+        "voice_code": 110,
+        "gender": "female"
+      },
+      {
+        "voice_name": "猫使アル (Nekotsukai Aru) - へろへろ",
+        "voice_code": 111,
+        "gender": "female"
+      },
+      {
+        "voice_name": "猫使ビィ (Nekotsukai Bii) - Bình thường",
+        "voice_code": 58,
+        "gender": "female"
+      },
+      {
+        "voice_name": "猫使ビィ (Nekotsukai Bii) - おちつき",
+        "voice_code": 59,
+        "gender": "female"
+      },
+      {
+        "voice_name": "猫使ビィ (Nekotsukai Bii) - 人見知り",
+        "voice_code": 60,
+        "gender": "female"
+      },
+      {
+        "voice_name": "猫使ビィ (Nekotsukai Bii) - つよつよ",
+        "voice_code": 112,
+        "gender": "female"
+      },
+      {
+        "voice_name": "中国うさぎ (Chugoku Usagi) - Bình thường",
+        "voice_code": 61,
+        "gender": "female"
+      },
+      {
+        "voice_name": "中国うさぎ (Chugoku Usagi) - Ngạc nhiên",
+        "voice_code": 62,
+        "gender": "female"
+      },
+      {
+        "voice_name": "中国うさぎ (Chugoku Usagi) - Nhút nhát",
+        "voice_code": 63,
+        "gender": "female"
+      },
+      {
+        "voice_name": "中国うさぎ (Chugoku Usagi) - へろへろ",
+        "voice_code": 64,
+        "gender": "female"
+      },
+      {
+        "voice_name": "栗田まろん (Kurita Maron) - Bình thường",
+        "voice_code": 67,
+        "gender": "female"
+      },
+      {
+        "voice_name": "あいえるたん (Aierutan) - Bình thường",
+        "voice_code": 68,
+        "gender": "female"
+      },
+      {
+        "voice_name": "満別花丸 (Mambetsu Hanamaru) - Bình thường",
+        "voice_code": 69,
+        "gender": "female"
+      },
+      {
+        "voice_name": "満別花丸 (Mambetsu Hanamaru) - Năng động",
+        "voice_code": 70,
+        "gender": "female"
+      },
+      {
+        "voice_name": "満別花丸 (Mambetsu Hanamaru) - Thì thầm",
+        "voice_code": 71,
+        "gender": "female"
+      },
+      {
+        "voice_name": "満別花丸 (Mambetsu Hanamaru) - Điệu đà",
+        "voice_code": 72,
+        "gender": "female"
+      },
+      {
+        "voice_name": "満別花丸 (Mambetsu Hanamaru) - Giọng nam bé",
+        "voice_code": 73,
+        "gender": "female"
+      },
+      {
+        "voice_name": "琴詠ニア (Kotobue Nia) - Bình thường",
+        "voice_code": 74,
+        "gender": "female"
+      },
+      {
+        "voice_name": "Voidoll (Voidoll) - Bình thường",
+        "voice_code": 89,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ぞん子 (Zonko) - Bình thường",
+        "voice_code": 90,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ぞん子 (Zonko) - Thiếu sức sống",
+        "voice_code": 91,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ぞん子 (Zonko) - Tỉnh giấc",
+        "voice_code": 92,
+        "gender": "female"
+      },
+      {
+        "voice_name": "ぞん子 (Zonko) - Kiểu bình luận",
+        "voice_code": 93,
+        "gender": "female"
+      },
+      {
+        "voice_name": "中部つるぎ (Chubu Tsurugi) - Bình thường",
+        "voice_code": 94,
+        "gender": "female"
+      },
+      {
+        "voice_name": "中部つるぎ (Chubu Tsurugi) - Giận dữ",
+        "voice_code": 95,
+        "gender": "female"
+      },
+      {
+        "voice_name": "中部つるぎ (Chubu Tsurugi) - Nói khẽ",
+        "voice_code": 96,
+        "gender": "female"
+      },
+      {
+        "voice_name": "中部つるぎ (Chubu Tsurugi) - Lo sợ",
+        "voice_code": 97,
+        "gender": "female"
+      },
+      {
+        "voice_name": "中部つるぎ (Chubu Tsurugi) - Tuyệt vọng & Thất bại",
+        "voice_code": 98,
+        "gender": "female"
+      },
+      {
+        "voice_name": "離途 (Rito) - Bình thường",
+        "voice_code": 99,
+        "gender": null
+      },
+      {
+        "voice_name": "離途 (Rito) - Nghiêm túc",
+        "voice_code": 101,
+        "gender": null
+      },
+      {
+        "voice_name": "黒沢冴白 (Kurosawa Saehaku) - Bình thường",
+        "voice_code": 100,
+        "gender": null
+      },
+      {
+        "voice_name": "ユーレイちゃん (Yurei-chan) - Bình thường",
+        "voice_code": 102,
+        "gender": null
+      },
+      {
+        "voice_name": "ユーレイちゃん (Yurei-chan) - Ngọt ngào",
+        "voice_code": 103,
+        "gender": null
+      },
+      {
+        "voice_name": "ユーレイちゃん (Yurei-chan) - Buồn bã",
+        "voice_code": 104,
+        "gender": null
+      },
+      {
+        "voice_name": "ユーレイちゃん (Yurei-chan) - Thì thầm",
+        "voice_code": 105,
+        "gender": null
+      },
+      {
+        "voice_name": "ユーレイちゃん (Yurei-chan) - Tsukumo",
+        "voice_code": 106,
+        "gender": null
+      },
+      {
+        "voice_name": "東北ずん子 (Tohoku Zunko) - Bình thường",
+        "voice_code": 107,
+        "gender": null
+      },
+      {
+        "voice_name": "東北きりたん (Tohoku Kiritan) - Bình thường",
+        "voice_code": 108,
+        "gender": null
+      },
+      {
+        "voice_name": "東北イタコ (Tohoku Itako) - Bình thường",
+        "voice_code": 109,
+        "gender": null
+      }
+    ],
+    "audio_config_parameters": [
+      {
+        "name": "pitchScale",
+        "description": "Cao độ giọng (độ cao của âm thanh). Điều chỉnh giọng cao hoặc trầm.",
+        "min": -0.15,
+        "max": 0.15,
+        "default": 0.0,
+        "type": "float"
+      },
+      {
+        "name": "intonationScale",
+        "description": "Độ nhấn/ngữ điệu của toàn câu. Điều chỉnh độ lên xuống tự nhiên.",
+        "min": 0.0,
+        "max": 2.0,
+        "default": 1.0,
+        "type": "float"
+      },
+      {
+        "name": "speedScale",
+        "description": "Tốc độ nói.",
+        "min": 0.5,
+        "max": 2.0,
+        "default": 1.0,
+        "type": "float"
+      },
+      {
+        "name": "volumeScale",
+        "description": "Âm lượng tổng.",
+        "min": 0.0,
+        "max": 2.0,
+        "default": 1.0,
+        "type": "float"
+      },
+      {
+        "name": "prePhonemeLength",
+        "description": "Thời gian phát âm trước câu (mềm mại hơn khi bắt đầu nói).",
+        "min": 0.0,
+        "max": 2.0,
+        "default": 0.1,
+        "type": "float"
+      },
+      {
+        "name": "postPhonemeLength",
+        "description": "Thời gian kết thúc câu, tạo khoảng nghỉ.",
+        "min": 0.0,
+        "max": 2.0,
+        "default": 0.1,
+        "type": "float"
+      },
+      {
+        "name": "pauseScale",
+        "description": "Độ dài khoảng dừng giữa câu/giữa cụm từ.",
+        "min": 0.0,
+        "max": 2.0,
+        "default": 1.0,
+        "type": "float"
+      }
+    ]
+  },
+  {
+    "language_name": "Nhật Bản - Google",
+    "language_code": "ja-JP",
+    "type": "GOOGLE",
+    "voices": [
+      {
+        "voice_name": "Achernar",
+        "voice_code": "ja-JP-Chirp3-HD-Achernar",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Achird",
+        "voice_code": "ja-JP-Chirp3-HD-Achird",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Algenib",
+        "voice_code": "ja-JP-Chirp3-HD-Algenib",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Algieba",
+        "voice_code": "ja-JP-Chirp3-HD-Algieba",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Alnilam",
+        "voice_code": "ja-JP-Chirp3-HD-Alnilam",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Aoede",
+        "voice_code": "ja-JP-Chirp3-HD-Aoede",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Autonoe",
+        "voice_code": "ja-JP-Chirp3-HD-Autonoe",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Callirrhoe",
+        "voice_code": "ja-JP-Chirp3-HD-Callirrhoe",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Charon",
+        "voice_code": "ja-JP-Chirp3-HD-Charon",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Despina",
+        "voice_code": "ja-JP-Chirp3-HD-Despina",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Enceladus",
+        "voice_code": "ja-JP-Chirp3-HD-Enceladus",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Erinome",
+        "voice_code": "ja-JP-Chirp3-HD-Erinome",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Fenrir",
+        "voice_code": "ja-JP-Chirp3-HD-Fenrir",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Gacrux",
+        "voice_code": "ja-JP-Chirp3-HD-Gacrux",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Iapetus",
+        "voice_code": "ja-JP-Chirp3-HD-Iapetus",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Kore",
+        "voice_code": "ja-JP-Chirp3-HD-Kore",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Laomedeia",
+        "voice_code": "ja-JP-Chirp3-HD-Laomedeia",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Leda",
+        "voice_code": "ja-JP-Chirp3-HD-Leda",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Orus",
+        "voice_code": "ja-JP-Chirp3-HD-Orus",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Puck",
+        "voice_code": "ja-JP-Chirp3-HD-Puck",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Pulcherrima",
+        "voice_code": "ja-JP-Chirp3-HD-Pulcherrima",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Rasalgethi",
+        "voice_code": "ja-JP-Chirp3-HD-Rasalgethi",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Sadachbia",
+        "voice_code": "ja-JP-Chirp3-HD-Sadachbia",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Sadaltager",
+        "voice_code": "ja-JP-Chirp3-HD-Sadaltager",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Schedar",
+        "voice_code": "ja-JP-Chirp3-HD-Schedar",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Sulafat",
+        "voice_code": "ja-JP-Chirp3-HD-Sulafat",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Umbriel",
+        "voice_code": "ja-JP-Chirp3-HD-Umbriel",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Vindemiatrix",
+        "voice_code": "ja-JP-Chirp3-HD-Vindemiatrix",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Zephyr",
+        "voice_code": "ja-JP-Chirp3-HD-Zephyr",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Zubenelgenubi",
+        "voice_code": "ja-JP-Chirp3-HD-Zubenelgenubi",
+        "gender": "MALE"
+      }
+    ],
+    "audio_config_parameters": [
+      {
+        "name": "speakingRate",
+        "description": "Tốc độ nói. Giá trị nhỏ làm giọng chậm, giá trị lớn làm giọng nhanh.",
+        "min": 0.25,
+        "max": 4.0,
+        "default": 1.0,
+        "type": "float"
+      },
+      {
+        "name": "pitch",
+        "description": "Độ cao của giọng. Giá trị âm làm giọng trầm hơn, giá trị dương làm giọng cao hơn.",
+        "min": -20.0,
+        "max": 20.0,
+        "default": 0.0,
+        "type": "float"
+      },
+      {
+        "name": "volumeGainDb",
+        "description": "Âm lượng đầu ra tính theo decibel.",
+        "min": -96.0,
+        "max": 16.0,
+        "default": 0.0,
+        "type": "float"
+      }
+    ]
+  },
+  {
+    "language_name": "Hàn Quốc - Google",
+    "language_code": "ko-KR",
+    "type": "GOOGLE",
+    "voices": [
+      {
+        "voice_name": "Achernar",
+        "voice_code": "ko-KR-Chirp3-HD-Achernar",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Achird",
+        "voice_code": "ko-KR-Chirp3-HD-Achird",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Algenib",
+        "voice_code": "ko-KR-Chirp3-HD-Algenib",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Algieba",
+        "voice_code": "ko-KR-Chirp3-HD-Algieba",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Alnilam",
+        "voice_code": "ko-KR-Chirp3-HD-Alnilam",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Aoede",
+        "voice_code": "ko-KR-Chirp3-HD-Aoede",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Autonoe",
+        "voice_code": "ko-KR-Chirp3-HD-Autonoe",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Callirrhoe",
+        "voice_code": "ko-KR-Chirp3-HD-Callirrhoe",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Charon",
+        "voice_code": "ko-KR-Chirp3-HD-Charon",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Despina",
+        "voice_code": "ko-KR-Chirp3-HD-Despina",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Enceladus",
+        "voice_code": "ko-KR-Chirp3-HD-Enceladus",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Erinome",
+        "voice_code": "ko-KR-Chirp3-HD-Erinome",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Fenrir",
+        "voice_code": "ko-KR-Chirp3-HD-Fenrir",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Gacrux",
+        "voice_code": "ko-KR-Chirp3-HD-Gacrux",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Iapetus",
+        "voice_code": "ko-KR-Chirp3-HD-Iapetus",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Kore",
+        "voice_code": "ko-KR-Chirp3-HD-Kore",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Laomedeia",
+        "voice_code": "ko-KR-Chirp3-HD-Laomedeia",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Leda",
+        "voice_code": "ko-KR-Chirp3-HD-Leda",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Orus",
+        "voice_code": "ko-KR-Chirp3-HD-Orus",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Puck",
+        "voice_code": "ko-KR-Chirp3-HD-Puck",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Pulcherrima",
+        "voice_code": "ko-KR-Chirp3-HD-Pulcherrima",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Rasalgethi",
+        "voice_code": "ko-KR-Chirp3-HD-Rasalgethi",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Sadachbia",
+        "voice_code": "ko-KR-Chirp3-HD-Sadachbia",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Sadaltager",
+        "voice_code": "ko-KR-Chirp3-HD-Sadaltager",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Schedar",
+        "voice_code": "ko-KR-Chirp3-HD-Schedar",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Sulafat",
+        "voice_code": "ko-KR-Chirp3-HD-Sulafat",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Umbriel",
+        "voice_code": "ko-KR-Chirp3-HD-Umbriel",
+        "gender": "MALE"
+      },
+      {
+        "voice_name": "Vindemiatrix",
+        "voice_code": "ko-KR-Chirp3-HD-Vindemiatrix",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Zephyr",
+        "voice_code": "ko-KR-Chirp3-HD-Zephyr",
+        "gender": "FEMALE"
+      },
+      {
+        "voice_name": "Zubenelgenubi",
+        "voice_code": "ko-KR-Chirp3-HD-Zubenelgenubi",
+        "gender": "MALE"
+      }
+    ],
+    "audio_config_parameters": [
+      {
+        "name": "speakingRate",
+        "description": "Tốc độ nói. Giá trị nhỏ làm giọng chậm, giá trị lớn làm giọng nhanh.",
+        "min": 0.25,
+        "max": 4.0,
+        "default": 1.0,
+        "type": "float"
+      },
+      {
+        "name": "pitch",
+        "description": "Độ cao của giọng. Giá trị âm làm giọng trầm hơn, giá trị dương làm giọng cao hơn.",
+        "min": -20.0,
+        "max": 20.0,
+        "default": 0.0,
+        "type": "float"
+      },
+      {
+        "name": "volumeGainDb",
+        "description": "Âm lượng đầu ra tính theo decibel.",
+        "min": -96.0,
+        "max": 16.0,
+        "default": 0.0,
+        "type": "float"
+      }
+    ]
+  }
+]
