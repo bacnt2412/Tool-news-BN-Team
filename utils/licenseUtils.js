@@ -76,7 +76,6 @@ async function checkLicense() {
   const macAddress = getMacAddress();
 
   try {
-    console.log('Checking license for MAC:', macAddress);
 
     // Gọi API check license với MAC address làm licenseKey
     const response = await axios.post(LICENSE_CHECK_API, {
@@ -131,7 +130,6 @@ async function checkLicense() {
  */
 function setLicenseUrl(url) {
   // This would need to be implemented to store in config
-  console.log('License URL updated:', url);
 }
 
 module.exports = {

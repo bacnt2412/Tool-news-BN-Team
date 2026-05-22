@@ -1,6 +1,6 @@
 const path = require('path');
 const fs = require('fs');
-const { execFile, spawn } = require('child_process');
+const { execFile, execFileSync, spawn } = require('child_process');
 const { app } = require('electron');
 const axios = require('axios');
 const pathUtils = require('./pathUtils');
@@ -52,6 +52,98 @@ function findYtDlpPath() {
 
   // Nếu không tìm thấy, trả về tên để thử trong PATH
   return process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
+}
+
+function findExecutablePath(names) {
+  const binPath = pathUtils.getBinPath();
+  const searchDirs = [
+    binPath,
+    __dirname,
+    path.join(__dirname, '..')
+  ].filter(Boolean);
+
+  for (const dir of searchDirs) {
+    for (const name of names) {
+      const executablePath = path.join(dir, name);
+      if (fs.existsSync(executablePath)) {
+        return executablePath;
+      }
+    }
+  }
+
+  const finder = process.platform === 'win32' ? 'where.exe' : 'which';
+  for (const name of names) {
+    try {
+      const stdout = execFileSync(finder, [name], {
+        encoding: 'utf-8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        windowsHide: true,
+        timeout: 3000
+      });
+      const foundPath = stdout.split(/\r?\n/).map(line => line.trim()).find(Boolean);
+      if (foundPath) {
+        return foundPath;
+      }
+    } catch (error) {
+      // Continue searching other runtime names.
+    }
+  }
+
+  return null;
+}
+
+function getExecutableVersion(executablePath) {
+  try {
+    const stdout = execFileSync(executablePath, ['--version'], {
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
+      timeout: 3000
+    }).trim();
+    return stdout;
+  } catch (error) {
+    return null;
+  }
+}
+
+function parseMajorVersion(versionText) {
+  const match = String(versionText || '').match(/(\d+)(?:\.\d+){0,2}/);
+  return match ? Number(match[1]) : null;
+}
+
+function findSupportedJsRuntime() {
+  const denoPath = findExecutablePath(process.platform === 'win32' ? ['deno.exe', 'deno'] : ['deno']);
+  if (denoPath) {
+    const version = getExecutableVersion(denoPath);
+    const major = parseMajorVersion(version);
+    if (major === null || major >= 2) {
+      return { name: 'deno', path: denoPath };
+    }
+  }
+
+  const nodePath = findExecutablePath(process.platform === 'win32' ? ['node.exe', 'node'] : ['node']);
+  if (nodePath) {
+    const version = getExecutableVersion(nodePath);
+    const major = parseMajorVersion(version);
+    if (major !== null && major >= 20) {
+      return { name: 'node', path: nodePath };
+    }
+  }
+
+  return null;
+}
+
+function addEjsRuntimeArgs(args) {
+  const runtime = findSupportedJsRuntime();
+  if (runtime && !args.includes('--js-runtimes')) {
+    args.push('--js-runtimes', `${runtime.name}:${runtime.path}`);
+  }
+
+  if (!args.includes('--remote-components')) {
+    args.push('--remote-components', 'ejs:github');
+  }
+
+  return args;
 }
 
 // Hàm lấy version hiện tại của yt-dlp
@@ -111,7 +203,6 @@ function getCurrentYtDlpVersion() {
             fs.mkdirSync(binDir, { recursive: true });
           }
           fs.writeFileSync(versionFilePath, actualVersion, 'utf-8');
-          console.log(`Đã cập nhật version file: ${fileVersion || 'N/A'} -> ${actualVersion}`);
         } catch (writeError) {
           console.warn('Không thể ghi version file:', writeError.message);
         }
@@ -341,7 +432,6 @@ async function checkYtDlpUpdate(silent = false, addCookiesToArgs) {
     const latestVersion = await getLatestYtDlpVersion();
     // Kiểm tra xem yt-dlp có tồn tại không
     const ytDlpPath = findYtDlpPath();
-    console.log(' #### ytDlpPat: ', ytDlpPath);
     const defaultName = process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp';
     // Nếu findYtDlpPath trả về tên file mặc định (không có path), có nghĩa là không tìm thấy
     const ytDlpExists = ytDlpPath !== defaultName && fs.existsSync(ytDlpPath);
@@ -411,6 +501,7 @@ module.exports = {
   getCurrentYtDlpVersion,
   getLatestYtDlpVersion,
   compareVersions,
+  addEjsRuntimeArgs,
   updateYtDlp,
   checkYtDlpUpdate
 };

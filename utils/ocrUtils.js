@@ -3,26 +3,20 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const axios = require('axios');
-const createClient = require('@azure-rest/ai-vision-image-analysis').default;
-const { AzureKeyCredential } = require('@azure/core-auth');
 
 let store;
-
-// Global counter để rotate keys giữa các luồng OCR
 let ocrThreadCounter = 0;
+const disabledGoogleKeys = new Map();
 
-// Set store reference (called from main.js)
 function setStore(storeInstance) {
   store = storeInstance;
 }
 
-// Utility: nhận vào URL hoặc đường dẫn file cục bộ, trả về buffer và mime type
 async function downloadOrReadImage(source) {
   if (!source) {
     throw new Error('Image source is empty');
   }
 
-  // Nếu là đường dẫn local
   if (/^[a-zA-Z]:\\/.test(source) || source.startsWith('/') || source.startsWith('.')) {
     const cleaned = source.replace(/^file:\/\//i, '');
     const resolvedPath = path.resolve(cleaned);
@@ -33,7 +27,6 @@ async function downloadOrReadImage(source) {
     };
   }
 
-  // Nếu là file:// URI
   if (source.startsWith('file://')) {
     const filePath = source.replace(/^file:\/+/, '');
     const resolvedPath = path.isAbsolute(filePath) ? filePath : path.resolve(filePath);
@@ -44,7 +37,6 @@ async function downloadOrReadImage(source) {
     };
   }
 
-  // Ngược lại coi như URL
   const protocol = source.startsWith('https') ? https : http;
   return await new Promise((resolve, reject) => {
     protocol.get(source, (response) => {
@@ -76,105 +68,115 @@ function detectMimeType(source) {
   return 'image/jpeg';
 }
 
-function isRemoteUrl(source = '') {
-  return /^https?:\/\//i.test(source);
-}
-
-// Hàm xử lý OCR bằng Microsoft Vision API
-async function extractTextWithMicrosoftVision(imageSource, threadIndex = 0) {
-  const settings = store.get('microsoftVision', {});
-  let apiKey = settings.apiKey;
-  let endpoint = settings.endpoint;
-
-  // Nếu có nhiều keys, rotate chúng dựa trên thread index
-  if (settings.apiKeys && Array.isArray(settings.apiKeys) && settings.apiKeys.length > 0) {
-    const keyIndex = threadIndex % settings.apiKeys.length;
-    const selectedKey = settings.apiKeys[keyIndex];
-    apiKey = selectedKey.value;
-    endpoint = selectedKey.endpoint || selectedKey['end-point'];
-    console.log(`🔄 Microsoft Vision Thread ${threadIndex}: Using key ${keyIndex + 1}/${settings.apiKeys.length}`);
+function normalizeGoogleApiKeys(keys) {
+  if (!Array.isArray(keys)) {
+    keys = keys ? [keys] : [];
   }
 
-  if (!apiKey || !endpoint) {
+  return keys
+    .map((key) => {
+      if (typeof key === 'string') return key.trim();
+      if (key && typeof key === 'object') {
+        return String(key.value || key.apiKey || key.key || '').trim();
+      }
+      return '';
+    })
+    .filter(Boolean);
+}
+
+function getGoogleApiKeys() {
+  const settings = store.get('googleVision', {});
+  if (Array.isArray(settings.apiKeys) && settings.apiKeys.length > 0) {
+    return normalizeGoogleApiKeys(settings.apiKeys);
+  }
+  return normalizeGoogleApiKeys(settings.apiKey);
+}
+
+function maskApiKey(apiKey) {
+  if (!apiKey) return 'unknown';
+  if (apiKey.length <= 8) return `${apiKey.slice(0, 2)}***`;
+  return `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`;
+}
+
+function getGoogleErrorDetail(error) {
+  if (!error || !error.response) {
     return {
-      success: false,
-      error: 'Vui lòng cấu hình Microsoft Vision API Key và Endpoint trong Settings'
+      status: null,
+      detail: error && error.message ? error.message : 'Unknown error'
     };
   }
 
-  // Đảm bảo endpoint không có trailing slash
-  const cleanEndpoint = endpoint.replace(/\/$/, '');
+  const status = error.response.status;
+  const errorData = error.response.data;
+  const detail = errorData?.error?.message || JSON.stringify(errorData);
 
-  // Tạo client sử dụng thư viện Azure chính thức
-  const credential = new AzureKeyCredential(apiKey);
-  const client = createClient(cleanEndpoint, credential);
+  return { status, detail };
+}
 
-  let requestBody = null;
-  let contentType = 'application/json';
+function shouldDisableGoogleKey(status, detail) {
+  const message = String(detail || '').toLowerCase();
 
-  if (isRemoteUrl(imageSource)) {
-    requestBody = { url: imageSource };
-  } else {
-    const { buffer, mimeType } = await downloadOrReadImage(imageSource);
-    requestBody = buffer;
-    contentType = mimeType;
-  }
+  return (
+    status === 400 ||
+    status === 401 ||
+    status === 429 ||
+    status === 403 ||
+    message.includes('api key not valid') ||
+    message.includes('denied access') ||
+    message.includes('permission_denied') ||
+    message.includes('quota') ||
+    message.includes('exceeded')
+  );
+}
 
-  const response = await client.path('/imageanalysis:analyze').post({
-    body: requestBody,
-    queryParameters: {
-      features: 'Read', // Chỉ dùng OCR
-      modelVersion: 'latest'
-    },
-    headers: { "Content-Type": contentType }
+function disableGoogleKey(apiKey, status, detail) {
+  if (!apiKey || disabledGoogleKeys.has(apiKey)) return;
+
+  const reason = status
+    ? `Google AI Studio API Error (${status}): ${detail}`
+    : `Google AI Studio API Error: ${detail}`;
+
+  disabledGoogleKeys.set(apiKey, {
+    reason,
+    disabledAt: Date.now()
   });
 
-  // Kiểm tra status code
-  if (response.status !== '200' && response.status !== 200) {
-    const errorMsg = response.body?.error || 'Unknown error';
-    console.error('OCR API Error:', errorMsg);
-    return {
-      success: false,
-      error: `API Error: ${response.status} - ${JSON.stringify(errorMsg)}`
-    };
-  }
-
-  // Trích xuất text từ kết quả
-  let extractedText = '';
-  const result = response.body.readResult;
-
-  if (result && result.blocks) {
-    result.blocks.forEach((block) => {
-      if (block.lines) {
-        block.lines.forEach((line) => {
-          if (line.text) {
-            extractedText += line.text + ' ';
-            extractedText += '\n';
-          }
-        });
-      }
-    });
-  }
-
-  return { success: true, text: extractedText.trim() };
+  console.warn(`Disabled Google AI Studio key ${maskApiKey(apiKey)} for this session: ${reason}`);
 }
 
-// Hàm xử lý OCR bằng Google AI Studio (Gemini Vision API)
-async function extractTextWithGoogleVision(imageSource) {
-  const settings = store.get('googleVision', {});
+function getActiveGoogleApiKeys(apiKeys) {
+  return apiKeys.filter((apiKey) => !disabledGoogleKeys.has(apiKey));
+}
 
-  // Support both `apiKey` (legacy single key) and `apiKeys` (array of keys)
-  let apiKeys = [];
-  if (Array.isArray(settings.apiKeys) && settings.apiKeys.length > 0) {
-    apiKeys = settings.apiKeys;
-  } else if (settings.apiKey) {
-    apiKeys = [settings.apiKey];
+function summarizeGoogleKeyErrors(errors) {
+  if (!errors || errors.length === 0) {
+    return 'Tat ca API Keys deu khong hoat dong';
   }
+
+  const uniqueErrors = [];
+  const seen = new Set();
+
+  for (const item of errors) {
+    const text = item.status
+      ? `Key ${item.keyNumber} (${item.keyMask}) loi ${item.status}: ${item.detail}`
+      : `Key ${item.keyNumber} (${item.keyMask}) loi: ${item.detail}`;
+
+    if (!seen.has(text)) {
+      seen.add(text);
+      uniqueErrors.push(text);
+    }
+  }
+
+  return `Tat ca Google AI Studio API Keys deu loi. ${uniqueErrors.slice(0, 5).join(' | ')}`;
+}
+
+async function extractTextWithGoogleVision(imageSource, apiKeysOverride = null) {
+  const apiKeys = apiKeysOverride ? normalizeGoogleApiKeys(apiKeysOverride) : getGoogleApiKeys();
 
   if (!apiKeys || apiKeys.length === 0) {
     return {
       success: false,
-      error: 'Vui lòng cấu hình Google AI Studio API Key trong Settings'
+      error: 'Vui long cau hinh Google AI Studio API Key trong Settings'
     };
   }
 
@@ -182,17 +184,12 @@ async function extractTextWithGoogleVision(imageSource) {
     const { buffer, mimeType } = await downloadOrReadImage(imageSource);
     const imageBase64 = buffer.toString('base64');
 
-    // Gọi Google AI Studio Gemini Vision API
-    // Sử dụng gemini-2.5-flash
-    const model = 'gemini-2.5-flash';
-    const apiVersions = ['v1', 'v1beta'];
-
     const requestBody = {
       contents: [
         {
           parts: [
             {
-              text: 'Hãy đọc và trích xuất tất cả văn bản có trong hình ảnh này. Chỉ trả về văn bản, không cần giải thích gì thêm.'
+              text: 'Hay doc va trich xuat tat ca van ban co trong hinh anh nay. Chi tra ve van ban, khong can giai thich gi them.'
             },
             {
               inline_data: {
@@ -205,39 +202,39 @@ async function extractTextWithGoogleVision(imageSource) {
       ]
     };
 
-    // Thử với từng API key
-    let lastError = null;
-    for (let keyIndex = 0; keyIndex < apiKeys.length; keyIndex++) {
-      const apiKey = apiKeys[keyIndex];
-      
+    const errors = [];
+    const activeApiKeys = getActiveGoogleApiKeys(apiKeys);
+
+    if (activeApiKeys.length === 0) {
+      const disabledReasons = apiKeys
+        .map((apiKey, index) => {
+          const disabledInfo = disabledGoogleKeys.get(apiKey);
+          return disabledInfo
+            ? `Key ${index + 1} (${maskApiKey(apiKey)}): ${disabledInfo.reason}`
+            : null;
+        })
+        .filter(Boolean);
+
+      return {
+        success: false,
+        error: disabledReasons.length > 0
+          ? `Tat ca Google AI Studio API Keys dang bi vo hieu hoa trong phien nay. ${disabledReasons.join(' | ')}`
+          : 'Tat ca API Keys deu khong hoat dong'
+      };
+    }
+
+    for (const apiKey of activeApiKeys) {
       try {
-        // Thử với các API versions khác nhau
-        let response = null;
-        for (const apiVersion of apiVersions) {
-          try {
-            const apiUrl = `https://generativelanguage.googleapis.com/${apiVersion}/models/${model}:generateContent?key=${apiKey}`;
+        const apiVersion = 'v1beta';
+        const model = 'gemini-3.1-flash-lite-preview';
+        const apiUrl = `https://generativelanguage.googleapis.com/${apiVersion}/models/${model}:generateContent?key=${apiKey}`;
 
-            response = await axios.post(apiUrl, requestBody, {
-              headers: {
-                'Content-Type': 'application/json'
-              }
-            });
-
-            // Nếu thành công, break khỏi loop versions
-            if (response.status === 200) {
-              break;
-            }
-          } catch (versionError) {
-            // Nếu là lỗi 404 (model not found), thử version tiếp theo
-            if (versionError.response && versionError.response.status === 404) {
-              continue;
-            }
-            // Nếu là lỗi khác, throw để thử API key tiếp theo
-            throw versionError;
+        const response = await axios.post(apiUrl, requestBody, {
+          headers: {
+            'Content-Type': 'application/json'
           }
-        }
+        });
 
-        // Nếu thành công, trích xuất text và return
         if (response && response.status === 200) {
           let extractedText = '';
           if (response.data && response.data.candidates && response.data.candidates.length > 0) {
@@ -254,51 +251,27 @@ async function extractTextWithGoogleVision(imageSource) {
           return { success: true, text: extractedText.trim() };
         }
       } catch (keyError) {
-        // Lưu lỗi để trả về nếu tất cả keys đều fail
-        lastError = keyError;
-        
-        // Nếu không phải lỗi API key (403), có thể là lỗi khác, thử tiếp
-        if (keyError.response && keyError.response.status === 403) {
-          // API key không hợp lệ, thử key tiếp theo
-          console.log(`API Key ${keyIndex + 1}/${apiKeys.length} failed (403), trying next key...`);
-          continue;
+        const { status, detail } = getGoogleErrorDetail(keyError);
+        const keyNumber = apiKeys.indexOf(apiKey) + 1;
+
+        errors.push({
+          keyNumber,
+          keyMask: maskApiKey(apiKey),
+          status,
+          detail
+        });
+
+        if (shouldDisableGoogleKey(status, detail)) {
+          disableGoogleKey(apiKey, status, detail);
         }
-        
-        // Nếu là lỗi khác (400, 500, etc.), có thể thử tiếp hoặc return error
-        // Tạm thời thử tiếp với key tiếp theo
-        console.log(`API Key ${keyIndex + 1}/${apiKeys.length} failed, trying next key...`);
+
         continue;
       }
     }
 
-    // Nếu tất cả API keys đều fail, trả về lỗi
-    if (lastError && lastError.response) {
-      const status = lastError.response.status;
-      const errorData = lastError.response.data;
-
-      let errorMessage = `Google AI Studio API Error (${status}): `;
-
-      if (status === 403) {
-        if (errorData.error && errorData.error.message) {
-          errorMessage += errorData.error.message;
-        } else {
-          errorMessage += 'Tất cả API Keys không hợp lệ hoặc không có quyền truy cập';
-        }
-      } else if (status === 400) {
-        errorMessage += errorData.error?.message || JSON.stringify(errorData);
-      } else {
-        errorMessage += errorData.error?.message || JSON.stringify(errorData);
-      }
-
-      return {
-        success: false,
-        error: errorMessage
-      };
-    }
-
     return {
       success: false,
-      error: lastError ? `Network error: ${lastError.message}` : 'Tất cả API Keys đều không hoạt động'
+      error: summarizeGoogleKeyErrors(errors)
     };
   } catch (error) {
     return {
@@ -308,60 +281,32 @@ async function extractTextWithGoogleVision(imageSource) {
   }
 }
 
-// Hàm OCR thông minh: Ưu tiên Google AI Studio, fallback sang Microsoft Vision
-async function performSmartOCR(imageSource) {
+async function performSmartOCR(imageSource, keyIndex = null) {
   try {
-    // Get current thread index và increment counter cho luồng tiếp theo
-    const currentThreadIndex = ocrThreadCounter++;
-    console.log(`🔄 OCR Thread ${currentThreadIndex}: Starting OCR process`);
-
-    // Kiểm tra xem có Google AI Studio keys không (studioAiGoogleApiKey đã được sync từ API)
-    const googleVisionSettings = store.get('googleVision', {});
-    let googleApiKeys = [];
-    if (Array.isArray(googleVisionSettings.apiKeys) && googleVisionSettings.apiKeys.length > 0) {
-      googleApiKeys = googleVisionSettings.apiKeys;
-    } else if (googleVisionSettings.apiKey) {
-      googleApiKeys = [googleVisionSettings.apiKey];
+    const googleApiKeys = getGoogleApiKeys();
+    if (googleApiKeys.length === 0) {
+      return {
+        success: false,
+        error: 'Vui long cau hinh Google AI Studio API Key trong Settings'
+      };
     }
 
-    // Ưu tiên dùng Google AI Studio nếu có keys
-    if (googleApiKeys.length > 0) {
-      // Rotate keys: mỗi luồng sử dụng key khác nhau
-      const keyIndex = currentThreadIndex % googleApiKeys.length;
-      const selectedKey = googleApiKeys[keyIndex];
-      const rotatedKeys = [selectedKey]; // Chỉ sử dụng 1 key cho luồng này
+    const selectedIndex = Number.isInteger(keyIndex)
+      ? keyIndex % googleApiKeys.length
+      : ocrThreadCounter++ % googleApiKeys.length;
 
-      console.log(`🔄 Thread ${currentThreadIndex}: Using Google AI Studio key ${keyIndex + 1}/${googleApiKeys.length} for OCR...`);
-      try {
-        const googleResult = await extractTextWithGoogleVision(imageSource, rotatedKeys);
-        if (googleResult.success) {
-          // console.log('✅ Google AI Studio OCR successful');
-          return googleResult;
-        } else {
-          console.log('⚠️ Google AI Studio OCR failed:', googleResult.error);
-          // Nếu Google thất bại, thử Microsoft Vision
-        }
-      } catch (googleError) {
-        console.log('⚠️ Google AI Studio OCR error:', googleError.message);
-        // Nếu Google lỗi, thử Microsoft Vision
-      }
-    } else {
-      console.log('ℹ️ No Google AI Studio keys found, skipping to Microsoft Vision');
+    const orderedKeys = googleApiKeys
+      .slice(selectedIndex)
+      .concat(googleApiKeys.slice(0, selectedIndex));
+
+    // Nếu tất cả keys đã bị disabled (do lỗi trước), clear để cho phép retry
+    if (getActiveGoogleApiKeys(orderedKeys).length === 0) {
+      disabledGoogleKeys.clear();
     }
 
-    // Fallback sang Microsoft Vision
-    console.log(`🔄 Thread ${currentThreadIndex}: Trying Microsoft Vision OCR...`);
-    const microsoftResult = await extractTextWithMicrosoftVision(imageSource, currentThreadIndex);
-    if (microsoftResult.success) {
-      console.log('✅ Microsoft Vision OCR successful');
-      return microsoftResult;
-    } else {
-      console.log('❌ Microsoft Vision OCR also failed:', microsoftResult.error);
-      return microsoftResult;
-    }
-
+    return await extractTextWithGoogleVision(imageSource, orderedKeys);
   } catch (error) {
-    console.error('❌ Smart OCR Error:', error);
+    console.error('Smart OCR Error:', error);
     return {
       success: false,
       error: `OCR Error: ${error.message}`
@@ -371,8 +316,7 @@ async function performSmartOCR(imageSource) {
 
 module.exports = {
   setStore,
-  extractTextWithMicrosoftVision,
   extractTextWithGoogleVision,
-  performSmartOCR
+  performSmartOCR,
+  getGoogleApiKeys
 };
-

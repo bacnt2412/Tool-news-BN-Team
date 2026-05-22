@@ -5,6 +5,7 @@ const http = require('http');
 const { execFile } = require('child_process');
 const { app } = require('electron');
 const pathUtils = require('./pathUtils');
+const ytDlpUtils = require('./ytDlpUtils');
 
 // Tìm yt-dlp path (import từ ytDlpUtils)
 let findYtDlpPath;
@@ -72,6 +73,122 @@ function downloadThumbnail(url, videoId) {
   return downloadThumbnailToPath(url, filePath);
 }
 
+function isUsableCaptionLanguage(language) {
+  const value = String(language || '').toLowerCase();
+  return value && value !== 'live_chat' && !value.includes('storyboard');
+}
+
+function selectCaptionFormat(formats) {
+  if (!Array.isArray(formats)) {
+    return null;
+  }
+
+  return formats.find(format => format && format.ext === 'vtt' && format.url) || null;
+}
+
+function pickCaptionLanguage(captions, videoInfo) {
+  const languages = Object.keys(captions || {}).filter(isUsableCaptionLanguage);
+  if (languages.length === 0) {
+    return null;
+  }
+
+  const candidates = [
+    videoInfo?.language,
+    videoInfo?.original_language,
+    videoInfo?.default_audio_language,
+    videoInfo?.requested_subtitles && Object.keys(videoInfo.requested_subtitles)[0],
+    'vi',
+    'en',
+    'ja',
+    'ko',
+    'zh-Hans',
+    'zh-Hant'
+  ].filter(Boolean);
+
+  for (const candidate of candidates) {
+    const exact = languages.find(language => language.toLowerCase() === String(candidate).toLowerCase());
+    if (exact) {
+      return exact;
+    }
+
+    const prefix = String(candidate).split('-')[0].toLowerCase();
+    const prefixed = languages.find(language => language.toLowerCase().split('-')[0] === prefix);
+    if (prefixed) {
+      return prefixed;
+    }
+  }
+
+  return languages[0];
+}
+
+function findCaptionTrackFromVideoInfo(videoInfo) {
+  const sources = [
+    videoInfo?.subtitles,
+    videoInfo?.automatic_captions
+  ];
+
+  for (const captions of sources) {
+    const language = pickCaptionLanguage(captions, videoInfo);
+    if (!language) {
+      continue;
+    }
+
+    const format = selectCaptionFormat(captions[language]);
+    if (format) {
+      return { language, format };
+    }
+  }
+
+  return null;
+}
+
+function downloadCaptionUrlToFile(captionUrl, filePath) {
+  return new Promise((resolve, reject) => {
+    const file = fs.createWriteStream(filePath);
+    const httpModule = captionUrl.startsWith('https') ? https : http;
+
+    const request = httpModule.get(captionUrl, (response) => {
+      if (response.statusCode === 301 || response.statusCode === 302) {
+        file.close(() => {
+          try { fs.unlinkSync(filePath); } catch (_) {}
+          if (response.headers.location) {
+            downloadCaptionUrlToFile(response.headers.location, filePath).then(resolve).catch(reject);
+          } else {
+            reject(new Error('Caption redirect missing location'));
+          }
+        });
+        return;
+      }
+
+      if (response.statusCode !== 200) {
+        file.close(() => {
+          try { fs.unlinkSync(filePath); } catch (_) {}
+          reject(new Error(`Failed to download caption: ${response.statusCode}`));
+        });
+        return;
+      }
+
+      response.pipe(file);
+      file.on('finish', () => {
+        file.close(() => resolve(filePath));
+      });
+    });
+
+    request.on('error', (error) => {
+      file.close(() => {
+        try { fs.unlinkSync(filePath); } catch (_) {}
+        reject(error);
+      });
+    });
+
+    file.on('error', (error) => {
+      request.destroy();
+      try { fs.unlinkSync(filePath); } catch (_) {}
+      reject(error);
+    });
+  });
+}
+
 // Hàm lấy danh sách subtitle từ yt-dlp --list-subs
 function getSubtitleList(videoUrl) {
   return new Promise((resolve, reject) => {
@@ -83,8 +200,9 @@ function getSubtitleList(videoUrl) {
     ];
 
     addCookiesToArgs(args);
+    ytDlpUtils.addEjsRuntimeArgs(args);
 
-    execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024, windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
         reject(new Error(`yt-dlp failed: ${stderr || error.message}`));
         return;
@@ -157,6 +275,19 @@ async function downloadSubtitle(videoUrl, videoId, videoInfo) {
     // Sử dụng bin/subtitles để lưu file (resources/bin không bị pack vào asar)
     const subtitlesDir = pathUtils.getSubtitlesDir();
 
+    const captionTrack = findCaptionTrackFromVideoInfo(videoInfo);
+    if (captionTrack) {
+      try {
+        const ext = captionTrack.format.ext || 'vtt';
+        const directSubtitlePath = path.join(subtitlesDir, `${videoId}.${captionTrack.language}.${ext}`);
+        const downloadedPath = await downloadCaptionUrlToFile(captionTrack.format.url, directSubtitlePath);
+        resolve(downloadedPath);
+        return;
+      } catch (error) {
+        console.warn('Could not download transcript directly, falling back to yt-dlp:', error.message);
+      }
+    }
+
     const outputPath = path.join(subtitlesDir, `${videoId}.%(ext)s`);
     const ytDlpPath = findYtDlpPath();
 
@@ -165,9 +296,19 @@ async function downloadSubtitle(videoUrl, videoId, videoInfo) {
 
     try {
       const languageInfo = await detectOriginalLanguageFromListSubs(videoUrl);
-      targetLanguage = languageInfo.language;
+      if (languageInfo.language && languageInfo.language !== 'auto') {
+        targetLanguage = languageInfo.language;
+      } else {
+        const fallbackTrack = findCaptionTrackFromVideoInfo(videoInfo);
+        targetLanguage = fallbackTrack?.language || 'en';
+      }
     } catch (error) {
       console.warn('Không thể detect ngôn ngữ, sử dụng auto:', error.message);
+    }
+
+    if (!targetLanguage || targetLanguage === 'auto') {
+      const fallbackTrack = findCaptionTrackFromVideoInfo(videoInfo);
+      targetLanguage = fallbackTrack?.language || 'en';
     }
 
     const args = [
@@ -182,13 +323,13 @@ async function downloadSubtitle(videoUrl, videoId, videoInfo) {
     ];
 
     addCookiesToArgs(args);
+    ytDlpUtils.addEjsRuntimeArgs(args);
 
 
-    execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+    execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024 * 10, windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
         // Nếu lỗi với ngôn ngữ cụ thể, thử fallback
         if (targetLanguage !== 'auto' && targetLanguage !== 'en') {
-          console.log(`Failed with language ${targetLanguage}, trying fallback...`);
           // Thử lại với auto hoặc en
           return downloadSubtitleFallback(videoUrl, videoId, resolve, reject);
         }
@@ -230,7 +371,7 @@ function downloadSubtitleFallback(videoUrl, videoId, resolve, reject) {
   const ytDlpPath = findYtDlpPath();
 
   // Thử với auto và en
-  const fallbackLanguages = ['auto', 'en'];
+  const fallbackLanguages = ['en', 'vi', 'ja', 'ko', 'zh-Hans', 'zh-Hant', 'all,-live_chat'];
   let currentLanguageIndex = 0;
 
   function tryNextLanguage() {
@@ -252,8 +393,9 @@ function downloadSubtitleFallback(videoUrl, videoId, resolve, reject) {
     ];
 
     addCookiesToArgs(args);
+    ytDlpUtils.addEjsRuntimeArgs(args);
 
-    execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+    execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024 * 10, windowsHide: true }, (error, stdout, stderr) => {
       if (error) {
         currentLanguageIndex++;
         tryNextLanguage();

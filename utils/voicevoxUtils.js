@@ -52,7 +52,6 @@ async function checkVoiceVoxServer(voicevoxUrl = 'http://127.0.0.1:50021') {
 async function startVoiceVoxServer(voicevoxUrl = 'http://127.0.0.1:50021') {
   // Nếu đã đang khởi động, đợi
   if (isStarting) {
-    console.log('VoiceVox is already starting, waiting...');
     // Đợi tối đa 30 giây
     for (let i = 0; i < 60; i++) {
       await new Promise(resolve => setTimeout(resolve, 500));
@@ -83,7 +82,6 @@ async function startVoiceVoxServer(voicevoxUrl = 'http://127.0.0.1:50021') {
 
   try {
     isStarting = true;
-    console.log('Starting VoiceVox server from:', voicevoxPath);
 
     // Khởi động VoiceVox
     // Nếu là VOICEVOX.exe (GUI), nó sẽ tự động start engine
@@ -100,12 +98,10 @@ async function startVoiceVoxServer(voicevoxUrl = 'http://127.0.0.1:50021') {
     voicevoxProcess.unref();
 
     // Đợi server khởi động (tối đa 30 giây)
-    console.log('Waiting for VoiceVox server to start...');
     for (let i = 0; i < 60; i++) {
       await new Promise(resolve => setTimeout(resolve, 500));
       const isReady = await checkVoiceVoxServer(voicevoxUrl);
       if (isReady) {
-        console.log('VoiceVox server is ready!');
         isStarting = false;
         return { success: true, message: 'VoiceVox server đã khởi động thành công' };
       }

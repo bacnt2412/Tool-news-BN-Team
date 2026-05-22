@@ -26,6 +26,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   onDownloadProgress: (callback) => {
     ipcRenderer.on('download-progress', (event, data) => callback(data));
   },
+  cutVideo: (options) => ipcRenderer.invoke('cut-video', options),
+  onCutVideoProgress: (callback) => {
+    ipcRenderer.on('cut-video-progress', (event, data) => callback(data));
+  },
   getDownloadSettings: () => ipcRenderer.invoke('get-download-settings'),
   saveDownloadSettings: (settings) => ipcRenderer.invoke('save-download-settings', settings),
 

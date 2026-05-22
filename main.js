@@ -23,11 +23,12 @@ const licenseUtils = require('./utils/licenseUtils');
 const updateUtils = require('./utils/updateUtils');
 const githubSyncUtils = require('./utils/githubSyncUtils');
 const videoSubFinderUtils = require('./utils/videoSubFinderUtils');
+const cutVideoUtils = require('./utils/cutVideoUtils');
 
 // Khởi tạo store để lưu settings
 const store = new Store();
 
-// Polyfill crypto cho Azure SDK nếu cần
+// Polyfill crypto for libraries that expect Web Crypto
 if (typeof global.crypto === 'undefined') {
   global.crypto = crypto;
 }
@@ -53,6 +54,10 @@ function initializeUtils() {
     mainWindow: mainWindow,
     findYtDlpPath: ytDlpUtils.findYtDlpPath,
     addCookiesToArgs: cookieUtils.addCookiesToArgs
+  });
+
+  cutVideoUtils.setDependencies({
+    mainWindow: mainWindow
   });
 }
 
@@ -155,7 +160,6 @@ app.whenReady().then(async () => {
           const filePath = path.join(subtitlesDir, file);
           if (fs.statSync(filePath).isFile()) {
             fs.unlinkSync(filePath);
-            console.log(`Đã xóa file subtitle cũ: ${file}`);
           }
         } catch (error) {
           console.warn(`Không thể xóa file subtitle ${file}:`, error.message);
@@ -194,10 +198,8 @@ app.whenReady().then(async () => {
           const message = checkResult.needsDownload 
             ? 'yt-dlp không tìm thấy, đang tải...'
             : `Phát hiện version mới: ${checkResult.latestVersion}, đang tự động cập nhật...`;
-          console.log(message);
           try {
             await ytDlpUtils.updateYtDlp(cookieUtils.addCookiesToArgs);
-            console.log('Đã tự động cập nhật/tải yt-dlp thành công');
           } catch (updateError) {
             console.error('Lỗi khi tự động cập nhật/tải yt-dlp:', updateError.message);
             // Gửi error status để unblock UI
@@ -264,15 +266,17 @@ ipcMain.handle('get-video-info', async (event, videoUrl) => {
     const args = [
       videoUrl,
       '--dump-json',
+      '--skip-download',
+      '--ignore-no-formats-error',
       '--no-playlist'
     ];
 
     // Thêm cookie nếu có
     cookieUtils.addCookiesToArgs(args);
+    ytDlpUtils.addEjsRuntimeArgs(args);
 
-    
     const videoInfo = await new Promise((resolve, reject) => {
-      execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+      execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024 * 10, windowsHide: true }, (error, stdout, stderr) => {
         if (error) {
           reject(new Error(`yt-dlp failed: ${stderr || error.message}`));
           return;
@@ -304,11 +308,7 @@ ipcMain.handle('get-video-info', async (event, videoUrl) => {
 
     // Lấy subtitle/transcript
     try {
-      console.log(' 111111111111111 ');
-      
       const subtitlePath = await videoUtils.downloadSubtitle(videoUrl, result.videoId, videoInfo);
-      console.log(' 2222222222222222 ');
-
       if (subtitlePath && fs.existsSync(subtitlePath)) {
         const subtitleContent = fs.readFileSync(subtitlePath, 'utf-8');
         result.subtitle = subtitleContent;
@@ -334,7 +334,6 @@ ipcMain.handle('get-video-info', async (event, videoUrl) => {
 // IPC handler để xử lý OCR trên thumbnail
 ipcMain.handle('extract-text-from-thumbnail', async (event, thumbnailUrl, videoId) => {
   try {
-    // Sử dụng OCR thông minh: ưu tiên Google AI Studio, fallback sang Microsoft Vision
     return await ocrUtils.performSmartOCR(thumbnailUrl);
   } catch (error) {
     console.error('OCR Error:', error);
@@ -459,11 +458,7 @@ ipcMain.handle('get-config', async () => {
 
 // IPC handlers cho Settings
 ipcMain.handle('get-settings', async () => {
-  const ocrProvider = store.get('ocrProvider', 'microsoft');
-  const microsoftVision = store.get('microsoftVision', {
-    apiKey: '',
-    endpoint: ''
-  });
+  const ocrProvider = store.get('ocrProvider', 'google');
   const googleVision = store.get('googleVision', {
     apiKeys: []
   });
@@ -476,7 +471,6 @@ ipcMain.handle('get-settings', async () => {
 
   return {
     ocrProvider,
-    microsoftVision,
     googleVision,
     googleTts,
     ytDlpCookies,
@@ -487,14 +481,7 @@ ipcMain.handle('get-settings', async () => {
 
 ipcMain.handle('save-settings', async (event, settings) => {
   // Lưu OCR provider
-  if (settings.ocrProvider) {
-    store.set('ocrProvider', settings.ocrProvider);
-  }
-
-  // Lưu Microsoft Vision settings
-  if (settings.microsoftVision) {
-    store.set('microsoftVision', settings.microsoftVision);
-  }
+  store.set('ocrProvider', 'google');
 
   // Lưu Google Vision settings
   if (settings.googleVision) {
@@ -683,6 +670,10 @@ ipcMain.handle('download-video', async (event, options) => {
   return await downloadUtils.downloadVideo(options);
 });
 
+ipcMain.handle('cut-video', async (event, options) => {
+  return await cutVideoUtils.cutVideo(options);
+});
+
 // IPC handler để chọn video file
 ipcMain.handle('select-video-file', async () => {
   try {
@@ -806,7 +797,6 @@ async function synthesizeWithSentenceSplit(text, cfg, outputPath, window, maxSen
   try {
     // 1. Split text into sentences
     const sentences = sentenceUtils.splitIntoSentences(text, maxSentenceLength);
-    console.log(`Split text into ${sentences.length} sentences (max length: ${maxSentenceLength})`);
     
     if (sentences.length === 0) {
       return { success: false, error: 'No sentences found in text' };
@@ -841,7 +831,6 @@ async function synthesizeWithSentenceSplit(text, cfg, outputPath, window, maxSen
       // Check/start VoiceVox server once
       const isRunning = await voicevoxUtils.checkVoiceVoxServer(voicevoxUrl);
       if (!isRunning) {
-        console.log('Starting VoiceVox server...');
         const startResult = await voicevoxUtils.startVoiceVoxServer(voicevoxUrl);
         if (!startResult.success) {
           throw new Error(startResult.error || 'Could not start VoiceVox server');
@@ -870,7 +859,6 @@ async function synthesizeWithSentenceSplit(text, cfg, outputPath, window, maxSen
     async function synthesizeSentence(i, sentence) {
       const sentencePath = path.join(tempDir, `sentence_${i.toString().padStart(4, '0')}${audioExt}`);
       
-      console.log(`Synthesizing sentence ${i + 1}/${sentences.length}: ${sentence.substring(0, 50)}...`);
       
       // Synthesize this sentence
       let result;
@@ -991,10 +979,8 @@ async function synthesizeWithSentenceSplit(text, cfg, outputPath, window, maxSen
     
     completedCount = processedCount;
     
-    console.log(`All ${sentences.length} sentences synthesized. Total duration: ${currentTime.toFixed(2)}s`);
     
     // 4. Concatenate audio files
-    console.log('Concatenating audio files...');
     const audioFiles = sentenceData.map(s => s.filePath);
     await audioUtils.concatenateAudioFiles(audioFiles, outputPath);
     
@@ -1002,7 +988,6 @@ async function synthesizeWithSentenceSplit(text, cfg, outputPath, window, maxSen
     const srtPath = outputPath.replace(/\.(wav|mp3)$/i, '.srt');
     const srtContent = sentenceUtils.generateSrt(sentenceData);
     sentenceUtils.saveSrtFile(srtPath, srtContent);
-    console.log(`SRT file saved: ${srtPath}`);
     
     // 6. Clean up temp files
     sentenceData.forEach(s => {
@@ -1095,12 +1080,10 @@ ipcMain.handle('tts-synthesize', async (event, options) => {
       const voicevoxUrl = (cfg && cfg.params && cfg.params.voicevoxUrl) ? cfg.params.voicevoxUrl : 'http://127.0.0.1:50021';
       const audioConfig = (cfg && cfg.params && cfg.params.audioConfig) ? cfg.params.audioConfig : {};
       
-      console.log('VoiceVox TTS - Speaker:', speaker, 'AudioConfig:', audioConfig);
       
       // Check if VoiceVox server is running, start it if not
       const isRunning = await voicevoxUtils.checkVoiceVoxServer(voicevoxUrl);
       if (!isRunning) {
-        console.log('VoiceVox server not running, starting...');
         const startResult = await voicevoxUtils.startVoiceVoxServer(voicevoxUrl);
         if (!startResult.success) {
           return { success: false, error: startResult.error || 'Không thể khởi động VoiceVox server' };
@@ -1131,7 +1114,6 @@ ipcMain.handle('tts-synthesize', async (event, options) => {
       const languageCode = (cfg && cfg.params && cfg.params.language_code) ? cfg.params.language_code : (options.languageCode || 'ja-JP');
       const audioConfig = (cfg && cfg.params && cfg.params.audioConfig) ? cfg.params.audioConfig : {};
       
-      console.log('Google TTS - Voice:', voiceName, 'Language:', languageCode, 'AudioConfig:', audioConfig);
       
       const res = await ttsUtils.synthesizeWithGoogle({ text: options.text, apiKey, voiceName, languageCode, outputPath: filePath, audioEncoding: 'MP3', audioConfig });
       return res;
@@ -1202,7 +1184,6 @@ ipcMain.handle('tts-preview', async (event, options) => {
       // Check if VoiceVox server is running, start it if not
       const isRunning = await voicevoxUtils.checkVoiceVoxServer(voicevoxUrl);
       if (!isRunning) {
-        console.log('VoiceVox server not running, starting...');
         const startResult = await voicevoxUtils.startVoiceVoxServer(voicevoxUrl);
         if (!startResult.success) {
           return { success: false, error: startResult.error || 'Không thể khởi động VoiceVox server' };
@@ -1232,7 +1213,6 @@ ipcMain.handle('tts-preview', async (event, options) => {
       const languageCode = options.languageCode || (options.voice && options.voice.language_code) || 'en-US';
       const audioConfig = options.params || {};
       
-      console.log('Google TTS Preview - Voice:', voiceName, 'Language:', languageCode, 'AudioConfig:', audioConfig);
       
       const res = await ttsUtils.synthesizeWithGoogle({ text: options.text, apiKey, voiceName, languageCode, outputPath: outPath, audioEncoding: 'MP3', audioConfig });
       return res.success ? { success: true, filePath: outPath } : res;
@@ -1348,6 +1328,5 @@ ipcMain.handle('get-video-subtitle-task-status', async (event, taskId) => {
 
 // Clear temp directory on app quit
 app.on('before-quit', () => {
-  console.log('🧹 Clearing temp directory before app quit...');
   videoSubFinderUtils.clearTempDir();
 });

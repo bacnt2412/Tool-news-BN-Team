@@ -3,6 +3,7 @@ const fs = require('fs');
 const { spawn, execFile } = require('child_process');
 const { app } = require('electron');
 const pathUtils = require('./pathUtils');
+const ytDlpUtils = require('./ytDlpUtils');
 
 let mainWindow;
 let findYtDlpPath;
@@ -27,8 +28,9 @@ function selectBestFormat(videoUrl, targetHeight) {
 
     // Thêm cookies nếu có
     addCookiesToArgs(args);
+    ytDlpUtils.addEjsRuntimeArgs(args);
 
-    execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024 * 10 }, (error, stdout, stderr) => {
+    execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024 * 10, windowsHide: true }, (error, stdout, stderr) => {
       // Kiểm tra lỗi cookie trong output
       const output = stderr || stdout || '';
       const isCookieError = output.includes('Sign in to confirm') || 
@@ -197,7 +199,6 @@ function selectBestFormat(videoUrl, targetHeight) {
             }
           } else {
             // Cuối cùng: dùng format string với filter linh hoạt hơn
-            // Không dùng [ext=mp4] filter quá strict, để yt-dlp tự chọn format tốt nhất
             resolve(`bestvideo[height<=${targetHeight}]+bestaudio/best[height<=${targetHeight}]/best`);
           }
         }
@@ -275,6 +276,7 @@ function buildDownloadArgs(url, outputPath, quality, selectedFormat = null, down
 
   // Add cookies if available
   addCookiesToArgs(args);
+  ytDlpUtils.addEjsRuntimeArgs(args);
 
   // Add segment download options if specified
   if (downloadType === 'segment' && startTime && endTime) {
@@ -371,6 +373,74 @@ function findDownloadedFile(folder, fileName) {
   }
 }
 
+function stripMediaMetadata(filePath) {
+  return new Promise((resolve) => {
+    if (!filePath || !fs.existsSync(filePath)) {
+      resolve(false);
+      return;
+    }
+
+    const ffmpegPath = findFfmpegPath();
+    if (!ffmpegPath) {
+      resolve(false);
+      return;
+    }
+
+    const dir = path.dirname(filePath);
+    const ext = path.extname(filePath);
+    const base = path.basename(filePath, ext);
+    const tempPath = path.join(dir, `${base}.metadata-clean-${Date.now()}${ext || '.tmp'}`);
+    const args = [
+      '-y',
+      '-hide_banner',
+      '-i', filePath,
+      '-map', '0',
+      '-c', 'copy',
+      '-map_metadata', '-1',
+      '-map_chapters', '-1',
+      '-metadata', 'comment=',
+      tempPath
+    ];
+
+    const process = spawn(ffmpegPath, args, { windowsHide: true });
+    let errorOutput = '';
+
+    process.stderr.on('data', (data) => {
+      errorOutput += data.toString();
+    });
+
+    process.on('error', (error) => {
+      try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+      console.warn('Could not strip media metadata:', error.message);
+      resolve(false);
+    });
+
+    process.on('close', (code) => {
+      if (code !== 0 || !fs.existsSync(tempPath)) {
+        try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+        console.warn('Could not strip media metadata:', errorOutput || `ffmpeg exited with code ${code}`);
+        resolve(false);
+        return;
+      }
+
+      try {
+        fs.renameSync(tempPath, filePath);
+        resolve(true);
+      } catch (renameError) {
+        try { if (fs.existsSync(filePath)) fs.unlinkSync(filePath); } catch (_) {}
+        try {
+          fs.renameSync(tempPath, filePath);
+          resolve(true);
+        } catch (replaceError) {
+          try { if (fs.existsSync(tempPath)) fs.unlinkSync(tempPath); } catch (_) {}
+          console.warn('Could not replace media file after metadata cleanup:', replaceError.message || renameError.message);
+          resolve(false);
+        }
+      }
+    });
+  });
+}
+
 // Download video with progress tracking
 function downloadVideo(options) {
   const { url, folder, fileName, quality, taskId, downloadType, startTime, endTime, audioOnly } = options;
@@ -413,7 +483,8 @@ function downloadVideo(options) {
 
       // Spawn yt-dlp process
       const downloadProcess = spawn(ytDlpPath, args, {
-        cwd: folder
+        cwd: folder,
+        windowsHide: true
       });
 
       let stdout = '';
@@ -431,10 +502,6 @@ function downloadVideo(options) {
         stderr += data.toString();
         const output = data.toString();
         
-        // Log để debug format selection
-        if (output.includes('format') || output.includes('height') || output.includes('Downloading') || output.includes('info') || output.includes('Merger')) {
-          // console.log(" ######### yt-dlp stderr:", output.trim());
-        }
 
         // Kiểm tra lỗi cookie ngay khi xuất hiện
         if (output.includes('Sign in to confirm') || 
@@ -491,10 +558,11 @@ function downloadVideo(options) {
         }
       });
 
-      downloadProcess.on('close', (code) => {
+      downloadProcess.on('close', async (code) => {
         if (code === 0) {
           // Find the downloaded file
           const filePath = findDownloadedFile(folder, fileName);
+          await stripMediaMetadata(filePath);
           const downloadedFile = path.basename(filePath);
 
           resolve({

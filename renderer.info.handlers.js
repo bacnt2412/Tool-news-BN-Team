@@ -213,7 +213,6 @@ window.updateThumbnailText = function(index, text) {
 	if (element) {
 		element.textContent = text || 'Không có chữ';
 		element.classList.remove('loading');
-		console.log(`Updated thumbnail text for element ${elementId}:`, text);
 	} else {
 		console.error(`Element not found: ${elementId}`);
 	}
@@ -234,5 +233,7 @@ window.retryThumbnailOCR = async function(resultIndex, displayIndex) {
 		textElement.classList.add('loading');
 	}
 
-	await window.processThumbnailOCR && window.processThumbnailOCR(videoData, displayIndex);
+	if (window.processThumbnailOCR) {
+		await window.processThumbnailOCR(videoData, displayIndex);
+	}
 };

@@ -22,7 +22,6 @@ const SETTINGS_TYPE = config.SETTINGS_TYPE;
  */
 async function syncCookiesFromAPI(cookiesContent, store) {
   try {
-    console.log('Syncing cookies from API');
 
     // Validate cookies format (Netscape cookie format)
     if (!cookiesContent.includes('# Netscape HTTP Cookie File')) {
@@ -39,10 +38,8 @@ async function syncCookiesFromAPI(cookiesContent, store) {
     // Lưu cookies vào electron-store để hiển thị trong UI
     if (store) {
       store.set('ytDlpCookies', cookiesContent);
-      console.log('✅ Cookies saved to store for UI display');
     }
 
-    console.log('✅ Cookies synced successfully:', cookiesFilePath);
 
     return {
       success: true,
@@ -66,7 +63,6 @@ async function syncCookiesFromAPI(cookiesContent, store) {
  */
 async function syncSettingsFromAPI(store) {
   try {
-    console.log('Syncing settings from API:', `${SETTINGS_API}?type=${SETTINGS_TYPE}`);
 
     // Tải settings từ API
     const response = await axios.get(`${SETTINGS_API}?type=${SETTINGS_TYPE}`, {
@@ -89,34 +85,15 @@ async function syncSettingsFromAPI(store) {
 
     const settings = data.settings;
 
-    // Parse và cập nhật Microsoft Vision settings
-    if (settings.microsoftVisionApiKey && Array.isArray(settings.microsoftVisionApiKey)) {
-      // Lưu tất cả keys để có thể rotate giữa các luồng
-      const validKeys = settings.microsoftVisionApiKey.filter(key =>
-        key && key.value && (key.endpoint || key['end-point'])
-      );
-
-      if (validKeys.length > 0) {
-        store.set('microsoftVision', {
-          apiKey: validKeys[0].value, // Backward compatibility - key đầu tiên
-          endpoint: validKeys[0].endpoint || validKeys[0]['end-point'],
-          apiKeys: validKeys // Lưu tất cả keys để rotate
-        });
-        console.log(`✅ Microsoft Vision settings updated with ${validKeys.length} keys`);
-      }
-    }
-
     // Parse và cập nhật Google Vision (Studio AI) settings
     if (settings.studioAiGoogleApiKey && Array.isArray(settings.studioAiGoogleApiKey)) {
       const apiKeys = settings.studioAiGoogleApiKey;
       store.set('googleVision', {
         apiKeys: apiKeys
       });
-      console.log(`✅ Google Vision settings updated (${apiKeys.length} keys)`);
 
       // Auto-set OCR Provider to Google AI Studio OCR if studioAiGoogleApiKey exists
       store.set('ocrProvider', 'google');
-      console.log('✅ OCR Provider auto-set to Google AI Studio OCR');
     }
 
     // Parse và cập nhật Google Cloud TTS settings
@@ -126,11 +103,9 @@ async function syncSettingsFromAPI(store) {
         store.set('googleTts', {
           apiKey: apiKey
         });
-        console.log('✅ Google TTS settings updated');
       }
     }
 
-    console.log('✅ Settings synced successfully from API');
 
     return {
       success: true,
@@ -156,7 +131,6 @@ async function syncSettingsFromAPI(store) {
 async function syncAllFromAPI(store) {
   // Kiểm tra xem có bật auto-sync không
   if (!config.AUTO_SYNC_ENABLED) {
-    console.log('Auto-sync is disabled in config.js');
     return {
       success: false,
       message: 'Auto-sync đã bị tắt trong config',
@@ -167,9 +141,6 @@ async function syncAllFromAPI(store) {
     };
   }
 
-  console.log('========================================');
-  console.log('🔄 Starting API auto-sync...');
-  console.log('========================================');
 
   // Đồng bộ settings (bao gồm cookies)
   const settingsResult = await syncSettingsFromAPI(store);
@@ -185,9 +156,6 @@ async function syncAllFromAPI(store) {
 
   const allSuccess = cookiesResult.success && settingsResult.success;
 
-  console.log('========================================');
-  console.log(allSuccess ? '✅ API auto-sync completed successfully' : '⚠️ API auto-sync completed with errors');
-  console.log('========================================');
 
   return {
     success: allSuccess,

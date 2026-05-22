@@ -1,6 +1,6 @@
 {
   "name": "youtube-video-info-extractor",
-  "version": "1.1.1",
+  "version": "1.1.4",
   "description": "Ứng dụng Electron để lấy thông tin video YouTube",
   "main": "main.js",
   "scripts": {
@@ -25,16 +25,14 @@
     "electron-builder": "^26.0.12"
   },
   "dependencies": {
-    "@azure-rest/ai-vision-image-analysis": "^1.0.0-beta.3",
-    "@azure/core-auth": "^1.4.0",
     "asynckit": "^0.4.0",
     "axios": "^1.6.0",
     "combined-stream": "^1.0.8",
     "crypto": "^1.0.1",
     "delayed-stream": "^1.0.0",
+    "electron-log": "^5.0.1",
     "electron-store": "^8.1.0",
     "electron-updater": "^6.1.7",
-    "electron-log": "^5.0.1",
     "form-data": "^4.0.4"
   },
   "build": {

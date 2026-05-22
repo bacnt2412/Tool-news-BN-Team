@@ -15,9 +15,7 @@ function clearTempDir() {
   try {
     const tempDir = path.join(pathUtils.getBinPath(), 'temp');
     if (fs.existsSync(tempDir)) {
-      console.log('🧹 Clearing temp directory:', tempDir);
       fs.rmSync(tempDir, { recursive: true, force: true });
-      console.log('✅ Temp directory cleared');
     }
   } catch (error) {
     console.error('❌ Error clearing temp directory:', error);
@@ -56,7 +54,6 @@ function findVideoSubFinderPath() {
   if (process.resourcesPath) {
     const resourcesPath = path.join(process.resourcesPath, 'bin', 'VideoSubFinder_6.10_x64', 'VideoSubFinderWXW.exe');
     if (fs.existsSync(resourcesPath)) {
-      console.log('Found VideoSubFinder in resources:', resourcesPath);
       return resourcesPath;
     }
   }
@@ -64,21 +61,18 @@ function findVideoSubFinderPath() {
   // 2. Kiểm tra trong thư mục bin (development)
   const binPath = path.join(__dirname, '..', 'bin', 'VideoSubFinder_6.10_x64', 'VideoSubFinderWXW.exe');
   if (fs.existsSync(binPath)) {
-    console.log('Found VideoSubFinder in bin:', binPath);
     return binPath;
   }
 
   // 3. Kiểm tra trong thư mục gốc
   const rootPath = path.join(__dirname, '..', 'VideoSubFinder_6.10_x64', 'VideoSubFinderWXW.exe');
   if (fs.existsSync(rootPath)) {
-    console.log('Found VideoSubFinder in root:', rootPath);
     return rootPath;
   }
 
   // 4. Kiểm tra trong thư mục hiện tại
   const currentPath = path.join(process.cwd(), 'VideoSubFinder_6.10_x64', 'VideoSubFinderWXW.exe');
   if (fs.existsSync(currentPath)) {
-    console.log('Found VideoSubFinder in cwd:', currentPath);
     return currentPath;
   }
 
@@ -174,7 +168,6 @@ function processQueue() {
   task.status = 'processing';
   activeProcesses++;
 
-  console.log('Starting processing for task:', task.id, 'Current status:', task.status);
 
   // Gửi thông báo bắt đầu xử lý - gửi ngay lập tức
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -218,9 +211,7 @@ function processQueue() {
 
       // Sau khi VideoSubFinder hoàn thành, OCR ảnh và tạo SRT
         try {
-          console.log('VideoSubFinder completed, starting OCR process...');
           await processImagesAndCreateSRT(task);
-          console.log('OCR process completed');
         } catch (ocrError) {
           console.error('Error processing images and creating SRT:', ocrError);
           // If OCR was aborted due to stop, handle gracefully
@@ -561,7 +552,6 @@ function runVideoSubFinder(task) {
 
     process.stderr.on('data', (data) => {
       stderr += data.toString();
-      console.error('VideoSubFinder stderr:', data.toString());
     });
 
     process.on('close', (code) => {
@@ -678,29 +668,13 @@ async function processImagesAndCreateSRT(task) {
       .sort(); // Sort để đảm bảo thứ tự
 
     if (imageFiles.length === 0) {
-      console.log('No images found in output directory:', outputDirTXTImages);
       return;
     }
 
-    console.log(`Found ${imageFiles.length} images to process`);
 
-    // Calculate number of concurrent threads based on API keys
-    // Microsoft: 1 key = 1 thread
-    // Google: number of threads = ceil(apiKeys.length / 3)
-    const providerFromTop = store.get('ocrProvider');
-    const settingsLegacy = store.get('ocr', {});
-    const provider = providerFromTop || settingsLegacy.provider || 'microsoft';
+    const googleApiKeys = ocrUtils.getGoogleApiKeys();
+    const maxConcurrent = Math.max(1, Math.min(imageFiles.length, googleApiKeys.length));
     
-    let maxConcurrent = 1; // Default for Microsoft (1 key)
-    if (provider === 'google') {
-      const apiKeys = store.get('googleVision', {}).apiKeys || [];
-      if (apiKeys && apiKeys.length > 0) {
-        maxConcurrent = Math.ceil(apiKeys.length / 4);
-        if (maxConcurrent < 1) maxConcurrent = 1; // At least 1 thread
-      }
-    }
-    
-    console.log(`OCR provider: ${provider}, Max concurrent threads: ${maxConcurrent}`);
 
     // Parse timestamp từ tên file và OCR từng ảnh với xử lý song song
     const subtitleEntries = [];
@@ -708,11 +682,10 @@ async function processImagesAndCreateSRT(task) {
     let errorCount = 0;
 
     // Process images with concurrency control
-    async function processImageWithIndex(imageFile, index) {
+    async function processImageWithIndex(imageFile, index, ocrKeyIndex) {
       try {
         // Check if task was requested to stop before processing this image
         if (task.status === 'stopped') {
-          console.log('ProcessImagesAndCreateSRT: aborting because task was stopped');
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('video-subtitle-progress', {
               taskId: task.id,
@@ -721,14 +694,14 @@ async function processImagesAndCreateSRT(task) {
               progress: 0
             });
           }
-          throw new Error('stopped');
+          fatalError = new Error('stopped');
+          hasFatalError = true;
+          throw fatalError;
         }
-        console.log(`Processing image ${index + 1}/${imageFiles.length}`);
 
         const timestampInfo = parseTimestampFromFilename(imageFile.name);
         
         if (!timestampInfo) {
-          console.log(`Could not parse timestamp from: ${imageFile.name}`);
           return null;
         }
         
@@ -742,12 +715,11 @@ async function processImagesAndCreateSRT(task) {
         }
         
         if (startTime === null) {
-          console.log(`Missing start timestamp for: ${imageFile.name}`);
           return null;
         }
 
         // OCR ảnh
-        const ocrResult = await performOCR(imageFile.path);
+        const ocrResult = await performOCR(imageFile.path, ocrKeyIndex);
         
         // If OCR utility returned an error (e.g., all Google keys exhausted), stop the whole task
         if (!ocrResult || ocrResult.success === false) {
@@ -768,7 +740,6 @@ async function processImagesAndCreateSRT(task) {
 
         // Check again after OCR call in case a stop happened while performing OCR
         if (task.status === 'stopped') {
-          console.log('ProcessImagesAndCreateSRT: aborting after OCR because task was stopped');
           if (mainWindow && !mainWindow.isDestroyed()) {
             mainWindow.webContents.send('video-subtitle-progress', {
               taskId: task.id,
@@ -805,16 +776,15 @@ async function processImagesAndCreateSRT(task) {
       }
     }
 
-    // Process images with concurrency limit (pipeline processing)
-    const activePromises = new Set();
+    // One OCR worker is bound to one Google API key.
     let currentIndex = 0;
     let hasFatalError = false;
     let fatalError = null;
 
-    while (currentIndex < imageFiles.length && !hasFatalError) {
+    async function runOcrWorker(ocrKeyIndex) {
+      while (currentIndex < imageFiles.length && !hasFatalError) {
       // Check if task was stopped
       if (task.status === 'stopped') {
-        console.log('ProcessImagesAndCreateSRT: aborting because task was stopped');
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('video-subtitle-progress', {
             taskId: task.id,
@@ -826,14 +796,11 @@ async function processImagesAndCreateSRT(task) {
         throw new Error('stopped');
       }
 
-      // Start up to maxConcurrent tasks
-      while (activePromises.size < maxConcurrent && currentIndex < imageFiles.length) {
-        const imageFile = imageFiles[currentIndex];
-        const index = currentIndex;
-        currentIndex++;
+        const index = currentIndex++;
+        const imageFile = imageFiles[index];
 
-        const promise = processImageWithIndex(imageFile, index)
-          .then((entry) => {
+        try {
+          const entry = await processImageWithIndex(imageFile, index, ocrKeyIndex);
             if (entry) {
               subtitleEntries.push(entry);
               processedCount++;
@@ -854,35 +821,28 @@ async function processImagesAndCreateSRT(task) {
                 ocrProgress: ocrPercent
               });
             }
-          })
-          .catch((error) => {
+        } catch (error) {
             errorCount++;
             const msg = (error && error.message) ? String(error.message).toLowerCase() : '';
             // If fatal error, mark and stop all processing
             if (msg.includes('ocr failed') || msg.includes('google ai studio') || msg.includes('quota') || msg.includes('exceeded') || msg === 'stopped') {
               hasFatalError = true;
               fatalError = error;
+              throw error;
             } else {
               // Otherwise, just log and continue
               console.error(`Non-fatal error processing image:`, error);
             }
-          })
-          .finally(() => {
-            activePromises.delete(promise);
-          });
-
-        activePromises.add(promise);
-      }
-
-      // Wait for at least one promise to complete before starting more
-      if (activePromises.size >= maxConcurrent) {
-        await Promise.race(Array.from(activePromises));
+        }
       }
     }
 
-    // Wait for all remaining promises to complete
-    if (activePromises.size > 0) {
-      await Promise.all(Array.from(activePromises));
+    const workers = Array.from({ length: maxConcurrent }, (_, index) => runOcrWorker(index));
+    const workerResults = await Promise.allSettled(workers);
+    const rejectedWorker = workerResults.find(result => result.status === 'rejected');
+    if (rejectedWorker && !fatalError) {
+      fatalError = rejectedWorker.reason;
+      hasFatalError = true;
     }
 
     // If there was a fatal error, throw it
@@ -904,7 +864,6 @@ async function processImagesAndCreateSRT(task) {
         const srtPath = path.join(outputDir, path.basename(videoPath, path.extname(videoPath)) + '.srt');
         fs.writeFileSync(srtPath, srtContent, 'utf8');
         task.srtPath = srtPath;
-        console.log(`SRT file created: ${srtPath} with ${subtitleEntries.length} entries`);
       } catch (error) {
         console.error('Error creating SRT file:', error);
         throw new Error(`Không thể tạo file SRT: ${error.message}`);
@@ -964,7 +923,7 @@ function convertUnderscoreTimeToSeconds(hoursStr, minutesStr, secondsStr, millis
 }
 
 // Perform OCR trên ảnh
-async function performOCR(imagePath) {
+async function performOCR(imagePath, ocrKeyIndex = null) {
   try {
     if (!ocrUtils) {
       console.error('OCR utils not initialized');
@@ -985,12 +944,8 @@ async function performOCR(imagePath) {
       } else {
         imageUrl = `file:///${imageUrl}`;
       }
-    }
-
-    // console.log(`Performing smart OCR on: ${imageUrl}`);
-
-    // Sử dụng OCR thông minh: ưu tiên Google AI Studio, fallback sang Microsoft Vision
-    return await ocrUtils.performSmartOCR(imageUrl);
+    }
+    return await ocrUtils.performSmartOCR(imageUrl, ocrKeyIndex);
   } catch (error) {
     console.error('Error in performOCR:', error);
     return { success: false, error: error.message || 'OCR error' };

@@ -11,20 +11,10 @@ export function setupInfoListeners() {
     if (downloadThumbnailsBtn) downloadThumbnailsBtn.addEventListener('click', window.openThumbnailDownloadModal || (() => {}));
 
     // Settings related listeners (OCR provider radios)
-    const ocrProviderMicrosoft = document.getElementById('ocr-provider-microsoft');
     const ocrProviderGoogle = document.getElementById('ocr-provider-google');
-    if (ocrProviderMicrosoft && ocrProviderGoogle) {
-        ocrProviderMicrosoft.addEventListener('change', function() {
-            if (this.checked) {
-                document.getElementById('microsoft-vision-settings').style.display = 'block';
-                document.getElementById('microsoft-vision-endpoint-settings').style.display = 'block';
-                document.getElementById('google-vision-settings').style.display = 'none';
-            }
-        });
+    if (ocrProviderGoogle) {
         ocrProviderGoogle.addEventListener('change', function() {
             if (this.checked) {
-                document.getElementById('microsoft-vision-settings').style.display = 'none';
-                document.getElementById('microsoft-vision-endpoint-settings').style.display = 'none';
                 document.getElementById('google-vision-settings').style.display = 'block';
             }
         });

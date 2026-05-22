@@ -34,9 +34,7 @@ async function synthesizeWithVoiceVox({ text, speaker = 1, outputPath, voicevoxU
       // if (typeof audioConfig.pitchScale === 'number' && query.accent_phrases) {
       //   const pitchMultiplier = audioConfig.pitchScale;
         
-      //   query.accent_phrases.forEach(phrase => {
-      //     console.log(" ######### phrase: ", phrase);
-      //     if (phrase.moras) {
+      //   query.accent_phrases.forEach(phrase => {      //     if (phrase.moras) {
       //       phrase.moras.forEach(mora => {
       //         if (typeof mora.pitch === 'number') {
       //           // Adjust pitch: multiply by pitchScale factor
@@ -99,7 +97,6 @@ async function synthesizeWithGoogle({ text, apiKey, voiceName = 'chirrp-3', lang
       googleAudioConfig.volumeGainDb = audioConfig.volumeGainDb;
     }
     
-    console.log('Google TTS audioConfig:', googleAudioConfig);
 
     const body = {
       input: { text },

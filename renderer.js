@@ -40,7 +40,6 @@
             }
             if (result.success) {
                 // License valid - hide modal and show app
-                console.log('License verified successfully');
                 licenseModal.style.display = 'none';
                 if (appContainer) {
                     appContainer.style.display = 'block';
@@ -49,7 +48,6 @@
                 // Load config from main process
                 try {
                     window.APP_CONFIG = await window.electronAPI.getConfig();
-                    console.log('Config loaded:', window.APP_CONFIG);
                 } catch (error) {
                     console.error('Failed to load config:', error);
                     // Set default config if loading fails
@@ -64,11 +62,9 @@
 
                 // Auto-sync cookies and settings from GitHub (if enabled in config)
                 if (window.APP_CONFIG && window.APP_CONFIG.AUTO_SYNC_ENABLED) {
-                    console.log('🔄 Auto-sync enabled, syncing from GitHub...');
                     try {
                         const syncResult = await window.electronAPI.syncFromGitHub();
                         if (syncResult.success) {
-                            console.log('GitHub sync successful:', syncResult.message);
                             // Show success toast if both cookies and settings synced
                             if (syncResult.details.cookies.success && syncResult.details.settings.success) {
                                 // Auto-refresh settings if modal is open
@@ -108,15 +104,17 @@
                     } catch (error) {
                         console.error('❌ GitHub sync error:', error);
                     }
-                } else {
-                    console.log('Auto-sync disabled in config');
                 }
 
                 // Auto check for updates after license verified
                 setTimeout(() => {
-                    console.log('Auto-checking for app updates...');
                     if (window.electronAPI && window.electronAPI.checkForUpdates) {
-                        window.electronAPI.checkForUpdates().catch(err => {
+                        window.electronAPI.checkForUpdates().then(result => {
+                            if (result && !result.success && result.message) {
+                                const type = result.isDev ? 'warning' : 'error';
+                                showToast(result.message, type, 5000);
+                            }
+                        }).catch(err => {
                             console.error('Auto update check failed:', err);
                         });
                     }
@@ -124,7 +122,6 @@
 
             } else {
                 // License denied - show error with MAC address
-                console.log('License check failed:', result.message);
                 licenseLoading.style.display = 'none';
                 licenseDenied.style.display = 'block';
                 licenseMacDisplay.textContent = result.macAddress || 'UNKNOWN';
@@ -313,11 +310,8 @@ const settingsModal = document.getElementById('settings-modal');
 const closeSettingsBtn = document.getElementById('close-settings');
 const saveSettingsBtn = document.getElementById('save-settings-btn');
 const cancelSettingsBtn = document.getElementById('cancel-settings-btn');
-const visionApiKeyInput = document.getElementById('vision-api-key');
-const visionEndpointInput = document.getElementById('vision-endpoint');
 const googleVisionApiKeyInput = document.getElementById('google-vision-api-key');
 const googleTtsApiKeyInput = document.getElementById('google-tts-api-key');
-const ocrProviderMicrosoft = document.getElementById('ocr-provider-microsoft');
 const ocrProviderGoogle = document.getElementById('ocr-provider-google');
 const ytDlpCookiesInput = document.getElementById('yt-dlp-cookies');
 const settingsStatus = document.getElementById('settings-status');
@@ -362,10 +356,7 @@ window.seekToSubtitleTime = function (seconds) {
             const onLoaded = () => {
                 try {
                     video.currentTime = Math.max(0, seconds + 0.05);
-                } catch (e) {
-                    console.warn('Failed to set currentTime on loadedmetadata:', e);
-                }
-                // video.play().catch(err => console.warn('Play failed:', err));
+                } catch (e) {}
                 video.removeEventListener('loadedmetadata', onLoaded);
             };
             video.addEventListener('loadedmetadata', onLoaded);
@@ -374,10 +365,7 @@ window.seekToSubtitleTime = function (seconds) {
         } else {
             try {
                 video.currentTime = Math.max(0, seconds + 0.05);
-            } catch (e) {
-                console.warn('Failed to set currentTime:', e);
-            }
-            // video.play().catch(err => console.warn('Play failed:', err));
+            } catch (e) {}
         }
 
         // Highlight entry
@@ -426,6 +414,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     initInfoTab();
     await initDownloadTab();
     initVideoTextTab();
+    initCutVideoTab();
     initTtsTab();
 
     setupYtDlpUpdateListeners();
@@ -459,6 +448,11 @@ function initVideoTextTab() {
             console.warn('initVideoTextTab: setupVideoSubtitleProgressListener failed', e);
         }
     }
+}
+
+// Initialize Cut video tab
+function initCutVideoTab() {
+    setupCutVideoTab();
 }
 
 // Initialize TTS tab
@@ -520,7 +514,6 @@ function setupTtsListeners() {
                         const configExists = configs.some(c => String(c.id) === String(settings.lastSelectedTtsConfigId));
                         if (configExists) {
                             ttsConfigSelect.value = settings.lastSelectedTtsConfigId;
-                            console.log('Auto-selected TTS config:', settings.lastSelectedTtsConfigId);
                         }
                     }
                 } catch (err) {
@@ -556,7 +549,6 @@ function setupTtsListeners() {
             // Ensure startTime is set if task is processing but doesn't have it yet
             if (task.status === 'processing' && !task.startTime) {
                 task.startTime = Date.now();
-                console.log('Setting startTime in renderTtsQueue for processing task:', task.id);
             }
 
             const row = document.createElement('tr');
@@ -729,7 +721,6 @@ function setupTtsListeners() {
         // Set start time when processing starts
         if (!next.startTime) {
             next.startTime = Date.now();
-            console.log('TTS processing started, startTime set:', new Date(next.startTime).toISOString());
         }
         renderTtsQueue();
         ttsActiveCount++;
@@ -754,7 +745,6 @@ function setupTtsListeners() {
                 next.endTime = Date.now();
                 if (next.startTime) {
                     next.duration = (next.endTime - next.startTime) / 1000; // Duration in seconds
-                    console.log('TTS completed, duration calculated:', next.duration, 'seconds');
                 }
 
                 // Show Windows notification
@@ -838,19 +828,16 @@ function setupTtsListeners() {
                 if (existing && existing.params) {
                     // Wait for DOM to update after populateVoicesForIndex
                     setTimeout(() => {
-                        console.log('Loading existing config:', existing);
 
                         // Set voice
                         if (existing.params.voice_code || existing.params.voiceName) {
                             const v = existing.params.voice_code || existing.params.voiceName;
-                            console.log('Looking for voice:', v);
 
                             let foundVoice = false;
                             for (let i = 0; i < selectVoice.options.length; i++) {
                                 if (String(selectVoice.options[i].value) === String(v)) {
                                     selectVoice.selectedIndex = i;
                                     foundVoice = true;
-                                    console.log('Found voice at index:', i);
                                     break;
                                 }
                             }
@@ -863,13 +850,11 @@ function setupTtsListeners() {
 
                         // Set audio params values
                         if (existing.params.audioConfig) {
-                            console.log('Loading audioConfig:', existing.params.audioConfig);
 
                             for (const key in existing.params.audioConfig) {
                                 const el = document.getElementById('param-' + key);
                                 if (el) {
                                     const value = existing.params.audioConfig[key];
-                                    console.log(`Setting ${key} = ${value}`);
 
                                     el.value = value;
 
@@ -1086,9 +1071,7 @@ function setupTtsListeners() {
             try {
                 saveBtn.disabled = true;
                 saveBtn.textContent = '⏳ Đang lưu...';
-                console.log('Saving TTS config (modal):', cfg);
                 const saveRes = await window.electronAPI.saveTtsConfig(cfg);
-                console.log('tts saveRes (modal):', saveRes);
                 if (saveRes && saveRes.success) {
                     showToast('Đã lưu config TTS', 'success');
                     await loadConfigs();
@@ -1102,7 +1085,6 @@ function setupTtsListeners() {
                             const settings = await window.electronAPI.getSettings();
                             settings.lastSelectedTtsConfigId = saveRes.savedConfigId;
                             await window.electronAPI.saveSettings(settings);
-                            console.log('Auto-selected and saved TTS config:', saveRes.savedConfigId);
                         } catch (err) {
                             console.warn('Could not save last selected TTS config:', err);
                         }
@@ -1180,7 +1162,6 @@ function setupTtsListeners() {
                 };
 
                 const previewRes = await window.electronAPI.ttsPreview(previewOptions);
-                console.log('tts preview res:', previewRes);
                 if (previewRes && previewRes.success && previewRes.filePath) {
                     try {
                         // Dừng audio trước đó nếu có
@@ -1318,7 +1299,6 @@ function setupTtsListeners() {
                 settings.lastSelectedTtsConfigId = selectedConfigId;
                 // Save back
                 await window.electronAPI.saveSettings(settings);
-                console.log('Saved last selected TTS config:', selectedConfigId);
             } catch (err) {
                 console.warn('Could not save last selected TTS config:', err);
             }
@@ -1454,8 +1434,7 @@ function setupAppUpdateListeners() {
 }
 
 // Handle app update status
-function handleAppUpdateStatus(data) {
-    console.log('App update status:', data);
+function handleAppUpdateStatusLegacy(data) {
 
     const modal = document.getElementById('update-modal');
     const title = document.getElementById('update-modal-title');
@@ -1540,6 +1519,122 @@ function handleAppUpdateStatus(data) {
             laterBtn.onclick = () => {
                 modal.style.display = 'none';
             };
+            break;
+    }
+}
+
+// Override app update behavior: checking uses toast only; modal is shown only when an update exists.
+function handleAppUpdateStatus(data) {
+
+    const modal = document.getElementById('update-modal');
+    const title = document.getElementById('update-modal-title');
+    const message = document.getElementById('update-modal-message');
+    const progressContainer = document.getElementById('update-progress-container');
+    const progressBar = document.getElementById('update-progress-bar');
+    const progressText = document.getElementById('update-progress-text');
+    const speedText = document.getElementById('update-speed-text');
+    const spinner = document.querySelector('#update-modal-body .spinner');
+    const installBtn = document.getElementById('update-install-btn');
+    const laterBtn = document.getElementById('update-later-btn');
+
+    if (!modal || !title || !message || !progressContainer || !progressBar || !progressText || !speedText || !spinner || !installBtn || !laterBtn) {
+        return;
+    }
+
+    switch (data.status) {
+        case 'checking':
+            modal.style.display = 'none';
+            showToast(data.message || 'Đang kiểm tra cập nhật...', 'info', 3000);
+            progressContainer.style.display = 'none';
+            installBtn.style.display = 'none';
+            laterBtn.style.display = 'none';
+            break;
+
+        case 'available':
+            modal.style.display = 'flex';
+            title.textContent = `Có phiên bản mới ${data.version}!`;
+            message.textContent = 'Bạn có muốn cập nhật ngay bây giờ không?';
+            spinner.style.display = 'none';
+            progressContainer.style.display = 'none';
+            installBtn.style.display = 'inline-block';
+            laterBtn.style.display = 'inline-block';
+            installBtn.disabled = false;
+            installBtn.textContent = 'Cập nhật ngay';
+            laterBtn.textContent = 'Để sau';
+
+            installBtn.onclick = async () => {
+                installBtn.disabled = true;
+                installBtn.textContent = 'Đang tải...';
+                spinner.style.display = 'block';
+                message.textContent = 'Đang bắt đầu tải phiên bản mới...';
+
+                const result = await window.electronAPI.downloadUpdate();
+                if (result && !result.success) {
+                    installBtn.disabled = false;
+                    installBtn.textContent = 'Thử lại';
+                    spinner.style.display = 'none';
+                    showToast(result.message || 'Lỗi tải bản cập nhật', 'error', 5000);
+                }
+            };
+
+            laterBtn.onclick = () => {
+                modal.style.display = 'none';
+            };
+            break;
+
+        case 'not-available':
+            showToast(data.message || 'Bạn đang sử dụng phiên bản mới nhất', 'success', 3000);
+            modal.style.display = 'none';
+            break;
+
+        case 'downloading': {
+            modal.style.display = 'flex';
+            title.textContent = 'Đang tải phiên bản mới...';
+            message.textContent = data.version ? `Đang tải phiên bản ${data.version}...` : 'Đang tải bản cập nhật...';
+            spinner.style.display = 'none';
+            progressContainer.style.display = 'block';
+            installBtn.style.display = 'none';
+            laterBtn.style.display = 'none';
+
+            const percent = Math.round(data.percent || 0);
+            progressBar.style.width = `${percent}%`;
+            progressText.textContent = `${percent}%`;
+
+            if (data.bytesPerSecond) {
+                const speedMB = (data.bytesPerSecond / (1024 * 1024)).toFixed(2);
+                speedText.textContent = `Tốc độ: ${speedMB} MB/s`;
+            }
+            break;
+        }
+
+        case 'downloaded':
+            modal.style.display = 'flex';
+            title.textContent = 'Đã tải xong!';
+            message.textContent = `Phiên bản ${data.version} đã sẵn sàng cài đặt.`;
+            spinner.style.display = 'none';
+            progressContainer.style.display = 'none';
+            installBtn.style.display = 'inline-block';
+            laterBtn.style.display = 'inline-block';
+            installBtn.disabled = false;
+            installBtn.textContent = 'Cài đặt ngay';
+            laterBtn.textContent = 'Để sau';
+
+            installBtn.onclick = () => {
+                window.electronAPI.quitAndInstall();
+            };
+
+            laterBtn.onclick = () => {
+                modal.style.display = 'none';
+            };
+            break;
+
+        case 'error':
+            showToast(data.message || 'Lỗi cập nhật', 'error', 5000);
+            modal.style.display = 'none';
+            spinner.style.display = 'none';
+            progressContainer.style.display = 'none';
+            installBtn.style.display = 'none';
+            laterBtn.style.display = 'none';
             break;
     }
 }
@@ -2575,23 +2670,12 @@ async function loadSettings() {
         const settings = await window.electronAPI.getSettings();
 
         // Load OCR provider
-        const ocrProvider = settings.ocrProvider || 'microsoft';
-        if (ocrProvider === 'google') {
+        if (ocrProviderGoogle) {
             ocrProviderGoogle.checked = true;
-            document.getElementById('microsoft-vision-settings').style.display = 'none';
-            document.getElementById('microsoft-vision-endpoint-settings').style.display = 'none';
-            document.getElementById('google-vision-settings').style.display = 'block';
-        } else {
-            ocrProviderMicrosoft.checked = true;
-            document.getElementById('microsoft-vision-settings').style.display = 'block';
-            document.getElementById('microsoft-vision-endpoint-settings').style.display = 'block';
-            document.getElementById('google-vision-settings').style.display = 'none';
         }
-
-        // Load Microsoft Vision settings
-        if (settings.microsoftVision) {
-            visionApiKeyInput.value = settings.microsoftVision.apiKey || '';
-            visionEndpointInput.value = settings.microsoftVision.endpoint || '';
+        const googleSettings = document.getElementById('google-vision-settings');
+        if (googleSettings) {
+            googleSettings.style.display = 'block';
         }
 
         // Load Google Vision settings
@@ -2631,29 +2715,10 @@ function closeSettings() {
 }
 
 async function saveSettings() {
-    const ocrProvider = ocrProviderMicrosoft.checked ? 'microsoft' : 'google';
-    const microsoftApiKey = visionApiKeyInput.value.trim();
-    const microsoftEndpoint = visionEndpointInput.value.trim();
     const googleApiKeysText = googleVisionApiKeyInput.value.trim();
     const googleTtsApiKey = googleTtsApiKeyInput.value.trim();
     const cookies = ytDlpCookiesInput.value.trim();
-
-    // Validate Microsoft Vision settings (nếu chọn Microsoft và có nhập)
-    if (ocrProvider === 'microsoft' && (microsoftApiKey || microsoftEndpoint)) {
-        if (!microsoftApiKey || !microsoftEndpoint) {
-            showSettingsStatus('Vui lòng nhập đầy đủ API Key và Endpoint cho Microsoft Vision hoặc để trống cả hai', 'error');
-            return;
-        }
-
-        // Validate endpoint format
-        if (!microsoftEndpoint.startsWith('http://') && !microsoftEndpoint.startsWith('https://')) {
-            showSettingsStatus('Endpoint phải bắt đầu bằng http:// hoặc https://', 'error');
-            return;
-        }
-    }
-
-    // Validate Google AI Studio settings (nếu chọn Google và có nhập)
-    if (ocrProvider === 'google' && googleApiKeysText) {
+    if (googleApiKeysText) {
         // Parse danh sách API keys (mỗi dòng một key)
         const apiKeys = googleApiKeysText
             .split('\n')
@@ -2678,11 +2743,7 @@ async function saveSettings() {
 
         // Build payload. Only include googleVision when we actually have keys to save
         const settingsPayload = {
-            ocrProvider: ocrProvider,
-            microsoftVision: {
-                apiKey: microsoftApiKey,
-                endpoint: microsoftEndpoint
-            },
+            ocrProvider: 'google',
             ytDlpCookies: cookies
         };
 
@@ -2727,6 +2788,596 @@ tabButtons.forEach(button => {
         document.getElementById(targetTab).classList.add('active');
     });
 });
+
+// Cut video functionality
+let cutVideoInitialized = false;
+let cutVideoPath = null;
+let cutVideoDurationSeconds = 0;
+
+function setupCutVideoTab() {
+    if (cutVideoInitialized) return;
+    cutVideoInitialized = true;
+
+    const selectVideoBtn = document.getElementById('cut-select-video-btn');
+    const fileNameDisplay = document.getElementById('cut-video-file-name');
+    const previewContainer = document.getElementById('cut-video-preview-container');
+    const preview = document.getElementById('cut-video-preview');
+    const cropBox = document.getElementById('cut-video-crop-box');
+    const playPauseBtn = document.getElementById('cut-video-play-pause-btn');
+    const backwardBtn = document.getElementById('cut-video-backward-btn');
+    const forwardBtn = document.getElementById('cut-video-forward-btn');
+    const seekBar = document.getElementById('cut-video-seek-bar');
+    const currentTimeEl = document.getElementById('cut-video-current-time');
+    const durationEl = document.getElementById('cut-video-duration');
+    const muteBtn = document.getElementById('cut-video-mute-btn');
+    const volumeBar = document.getElementById('cut-video-volume-bar');
+    const startInput = document.getElementById('cut-start-time');
+    const endInput = document.getElementById('cut-end-time');
+    const setStartBtn = document.getElementById('cut-set-start-btn');
+    const setEndBtn = document.getElementById('cut-set-end-btn');
+    const applyCropCheckbox = document.getElementById('cut-apply-crop');
+    const removeAudioCheckbox = document.getElementById('cut-remove-audio');
+    const cropAspectSelect = document.getElementById('cut-crop-aspect');
+    const splitDurationInput = document.getElementById('cut-split-duration');
+    const outputFolderInput = document.getElementById('cut-output-folder');
+    const selectFolderBtn = document.getElementById('cut-select-folder-btn');
+    const outputNameInput = document.getElementById('cut-output-name');
+    const runBtn = document.getElementById('cut-video-run-btn');
+    const progressSection = document.getElementById('cut-video-progress-section');
+    const progressFill = document.getElementById('cut-video-progress-fill');
+    const statusEl = document.getElementById('cut-video-status');
+    const outputEl = document.getElementById('cut-video-output');
+
+    if (!preview || !selectVideoBtn) return;
+
+    function setCutProgress(progress, message) {
+        const safeProgress = Math.max(0, Math.min(100, Math.round(Number(progress) || 0)));
+        if (progressSection) progressSection.style.display = 'block';
+        if (progressFill) {
+            progressFill.style.width = `${safeProgress}%`;
+            progressFill.textContent = `${safeProgress}%`;
+        }
+        if (statusEl && message) statusEl.textContent = message;
+    }
+
+    function setCutBusy(isBusy) {
+        if (!runBtn) return;
+        const btnText = runBtn.querySelector('.btn-text');
+        const btnLoader = runBtn.querySelector('.btn-loader');
+        runBtn.disabled = isBusy;
+        if (btnText) btnText.style.display = isBusy ? 'none' : 'inline';
+        if (btnLoader) btnLoader.style.display = isBusy ? 'inline' : 'none';
+    }
+
+    function updateCutTimeDisplays() {
+        if (currentTimeEl) currentTimeEl.textContent = formatTimeDisplay(Math.floor(preview.currentTime || 0));
+        if (durationEl) durationEl.textContent = formatTimeDisplay(Math.floor(preview.duration || 0));
+    }
+
+    function fileUrlFromPath(filePath) {
+        return `file:///${String(filePath || '').replace(/\\/g, '/').replace(/^\/+/, '')}`;
+    }
+
+    function getBaseName(filePath) {
+        return String(filePath || '').split(/[/\\]/).pop() || '';
+    }
+
+    function getNameWithoutExt(filePath) {
+        return getBaseName(filePath).replace(/\.[^/.]+$/, '');
+    }
+
+    function getDirName(filePath) {
+        const value = String(filePath || '');
+        const index = Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\'));
+        return index >= 0 ? value.substring(0, index) : '';
+    }
+
+    function resetCutCropBox() {
+        if (!cropBox || !previewContainer) return;
+        const rect = previewContainer.getBoundingClientRect();
+        if (!rect.width || !rect.height) return;
+
+        let width = rect.width * 0.82;
+        let height = rect.height * 0.82;
+        const aspectRatio = cropAspectSelect && cropAspectSelect.value === '16:9' ? 16 / 9 : null;
+
+        if (aspectRatio) {
+            height = width / aspectRatio;
+            if (height > rect.height * 0.82) {
+                height = rect.height * 0.82;
+                width = height * aspectRatio;
+            }
+        }
+
+        cropBox.style.left = `${(rect.width - width) / 2}px`;
+        cropBox.style.top = `${(rect.height - height) / 2}px`;
+        cropBox.style.width = `${width}px`;
+        cropBox.style.height = `${height}px`;
+        cropBox.style.display = applyCropCheckbox && applyCropCheckbox.checked ? 'block' : 'none';
+    }
+
+    function getCutCropBoxPosition() {
+        if (!cropBox || !previewContainer || !applyCropCheckbox || !applyCropCheckbox.checked) return null;
+        const containerRect = previewContainer.getBoundingClientRect();
+        const cropRect = cropBox.getBoundingClientRect();
+        if (!containerRect.width || !containerRect.height) return null;
+
+        return {
+            x: Math.max(0, (cropRect.left - containerRect.left) / containerRect.width),
+            y: Math.max(0, (cropRect.top - containerRect.top) / containerRect.height),
+            width: Math.min(1, cropRect.width / containerRect.width),
+            height: Math.min(1, cropRect.height / containerRect.height)
+        };
+    }
+
+    function validateCutTimeInput(input) {
+        if (!input) return true;
+        const value = input.value.trim();
+        if (!value) {
+            input.style.borderColor = '';
+            input.style.backgroundColor = '';
+            return true;
+        }
+        const seconds = parseTimeInput(value);
+        const valid = seconds !== null;
+        input.style.borderColor = valid ? '#28a745' : '#dc3545';
+        input.style.backgroundColor = valid ? '#f0fff4' : '#fff5f5';
+        return valid;
+    }
+
+    function bindCutTimeInput(input) {
+        if (!input) return;
+        input.addEventListener('input', () => validateCutTimeInput(input));
+        input.addEventListener('blur', () => {
+            const seconds = parseTimeInput(input.value.trim());
+            if (seconds !== null) {
+                input.value = formatTimeDisplay(seconds);
+                validateCutTimeInput(input);
+            }
+        });
+    }
+
+    function toggleCutVideoPlayback() {
+        if (!cutVideoPath) return;
+
+        if (preview.paused) {
+            preview.play().catch(error => console.warn('Cut video play failed:', error));
+        } else {
+            preview.pause();
+        }
+    }
+
+    function seekCutVideoBy(deltaSeconds) {
+        if (!cutVideoPath) return;
+        const duration = Number(preview.duration) || 0;
+        const current = Number(preview.currentTime) || 0;
+        const nextTime = Math.max(0, duration ? Math.min(duration, current + deltaSeconds) : current + deltaSeconds);
+        preview.currentTime = nextTime;
+        if (seekBar) seekBar.value = nextTime;
+        updateCutTimeDisplays();
+    }
+
+    function isTypingTarget(target) {
+        if (!target) return false;
+        const tagName = String(target.tagName || '').toLowerCase();
+        return tagName === 'input' || tagName === 'textarea' || tagName === 'select' || target.isContentEditable;
+    }
+
+    selectVideoBtn.addEventListener('click', async () => {
+        try {
+            const result = await window.electronAPI.selectVideoFile();
+            if (!result || result.canceled) return;
+            if (result.error) {
+                showToast('Lỗi chọn video: ' + result.error, 'error');
+                return;
+            }
+
+            cutVideoPath = result.filePath;
+            preview.src = fileUrlFromPath(cutVideoPath);
+            try { preview.load(); } catch (e) { console.warn('Cut video load warning:', e); }
+
+            if (fileNameDisplay) fileNameDisplay.textContent = getBaseName(cutVideoPath);
+            if (startInput) startInput.value = '0:00';
+            if (endInput) endInput.value = '';
+            if (outputNameInput) {
+                outputNameInput.value = `${getNameWithoutExt(cutVideoPath)}_cut`;
+            }
+            if (outputFolderInput && !outputFolderInput.value.trim()) {
+                outputFolderInput.value = getDirName(cutVideoPath);
+            }
+            if (outputEl) outputEl.textContent = '';
+            setCutProgress(0, 'Đã chọn video, hãy chỉnh thời gian và khung crop.');
+        } catch (error) {
+            console.error('Cut video select error:', error);
+            showToast('Lỗi chọn video: ' + error.message, 'error');
+        }
+    });
+
+    preview.addEventListener('loadedmetadata', () => {
+        cutVideoDurationSeconds = Math.floor(preview.duration || 0);
+        if (seekBar) seekBar.max = preview.duration || 0;
+        if (startInput) startInput.value = '0:00';
+        if (endInput) endInput.value = formatTimeDisplay(cutVideoDurationSeconds);
+        updateCutTimeDisplays();
+        setTimeout(resetCutCropBox, 50);
+    });
+
+    preview.addEventListener('timeupdate', () => {
+        if (seekBar && !seekBar.dragging) seekBar.value = preview.currentTime || 0;
+        updateCutTimeDisplays();
+    });
+
+    preview.addEventListener('play', () => {
+        if (playPauseBtn) playPauseBtn.textContent = '⏸️';
+    });
+
+    preview.addEventListener('pause', () => {
+        if (playPauseBtn) playPauseBtn.textContent = '▶️';
+    });
+
+    if (playPauseBtn) {
+        playPauseBtn.addEventListener('click', () => {
+            toggleCutVideoPlayback();
+        });
+    }
+
+    if (backwardBtn) {
+        backwardBtn.addEventListener('click', () => {
+            seekCutVideoBy(-2);
+        });
+    }
+
+    if (forwardBtn) {
+        forwardBtn.addEventListener('click', () => {
+            seekCutVideoBy(2);
+        });
+    }
+
+    document.addEventListener('keydown', (event) => {
+        if (!['Space', 'ArrowLeft', 'ArrowRight'].includes(event.code)) return;
+        if (!document.getElementById('cut-video-tab')?.classList.contains('active')) return;
+        if (isTypingTarget(event.target)) return;
+
+        event.preventDefault();
+        if (event.code === 'Space') {
+            toggleCutVideoPlayback();
+        } else if (event.code === 'ArrowLeft') {
+            seekCutVideoBy(-2);
+        } else if (event.code === 'ArrowRight') {
+            seekCutVideoBy(2);
+        }
+    });
+
+    if (seekBar) {
+        seekBar.addEventListener('input', () => {
+            seekBar.dragging = true;
+            preview.currentTime = Number(seekBar.value) || 0;
+            updateCutTimeDisplays();
+        });
+        seekBar.addEventListener('change', () => {
+            preview.currentTime = Number(seekBar.value) || 0;
+            seekBar.dragging = false;
+        });
+    }
+
+    if (volumeBar) {
+        volumeBar.addEventListener('input', () => {
+            preview.volume = Number(volumeBar.value) / 100;
+            if (muteBtn) muteBtn.textContent = preview.volume === 0 ? '🔇' : '🔊';
+        });
+    }
+
+    if (muteBtn) {
+        muteBtn.addEventListener('click', () => {
+            if (preview.volume === 0) {
+                preview.volume = volumeBar ? Number(volumeBar.value || 70) / 100 : 0.7;
+                if (preview.volume === 0) preview.volume = 0.7;
+                if (volumeBar) volumeBar.value = Math.round(preview.volume * 100);
+                muteBtn.textContent = '🔊';
+            } else {
+                preview.volume = 0;
+                if (volumeBar) volumeBar.value = 0;
+                muteBtn.textContent = '🔇';
+            }
+        });
+    }
+
+    if (setStartBtn) {
+        setStartBtn.addEventListener('click', () => {
+            if (startInput) {
+                startInput.value = formatTimeDisplay(Math.floor(preview.currentTime || 0));
+                validateCutTimeInput(startInput);
+            }
+        });
+    }
+
+    if (setEndBtn) {
+        setEndBtn.addEventListener('click', () => {
+            if (endInput) {
+                endInput.value = formatTimeDisplay(Math.floor(preview.currentTime || 0));
+                validateCutTimeInput(endInput);
+            }
+        });
+    }
+
+    if (applyCropCheckbox) {
+        applyCropCheckbox.addEventListener('change', () => {
+            if (cropBox) cropBox.style.display = applyCropCheckbox.checked ? 'block' : 'none';
+        });
+    }
+
+    if (cropAspectSelect) {
+        cropAspectSelect.addEventListener('change', resetCutCropBox);
+    }
+
+    bindCutTimeInput(startInput);
+    bindCutTimeInput(endInput);
+    bindCutTimeInput(splitDurationInput);
+
+    if (selectFolderBtn) {
+        selectFolderBtn.addEventListener('click', async () => {
+            try {
+                const result = await window.electronAPI.selectFolder();
+                if (result && result.folderPath && outputFolderInput) {
+                    outputFolderInput.value = result.folderPath;
+                }
+            } catch (error) {
+                showToast('Lỗi chọn thư mục: ' + error.message, 'error');
+            }
+        });
+    }
+
+    if (outputFolderInput) {
+        outputFolderInput.addEventListener('click', () => {
+            if (outputFolderInput.value.trim()) {
+                window.electronAPI.openFolder(outputFolderInput.value.trim()).catch(() => {});
+            } else if (selectFolderBtn) {
+                selectFolderBtn.click();
+            }
+        });
+    }
+
+    if (runBtn) {
+        runBtn.addEventListener('click', async () => {
+            if (!cutVideoPath) {
+                showToast('Vui lòng chọn video trước', 'error');
+                return;
+            }
+            if (!outputFolderInput || !outputFolderInput.value.trim()) {
+                showToast('Vui lòng chọn thư mục lưu', 'error');
+                return;
+            }
+
+            const startSeconds = parseTimeInput(startInput ? startInput.value.trim() : '0');
+            const endSeconds = parseTimeInput(endInput ? endInput.value.trim() : '');
+            const splitSeconds = splitDurationInput && splitDurationInput.value.trim()
+                ? parseTimeInput(splitDurationInput.value.trim())
+                : null;
+
+            if (startSeconds === null) {
+                showToast('Thời gian bắt đầu không hợp lệ', 'error');
+                return;
+            }
+            if (endSeconds === null) {
+                showToast('Thời gian kết thúc không hợp lệ', 'error');
+                return;
+            }
+            if (startSeconds >= endSeconds) {
+                showToast('Thời gian bắt đầu phải nhỏ hơn thời gian kết thúc', 'error');
+                return;
+            }
+            if (cutVideoDurationSeconds && endSeconds > cutVideoDurationSeconds + 1) {
+                showToast('Thời gian kết thúc vượt quá độ dài video', 'error');
+                return;
+            }
+            if (splitSeconds !== null && splitSeconds <= 0) {
+                showToast('Thời gian cắt nhỏ không hợp lệ', 'error');
+                return;
+            }
+            if (splitSeconds !== null && splitSeconds >= (endSeconds - startSeconds)) {
+                showToast('Thời gian cắt nhỏ phải nhỏ hơn độ dài đoạn video', 'error');
+                return;
+            }
+
+            try {
+                setCutBusy(true);
+                if (outputEl) outputEl.textContent = '';
+                setCutProgress(1, 'Đang chuẩn bị FFmpeg...');
+
+                const result = await window.electronAPI.cutVideo({
+                    videoPath: cutVideoPath,
+                    outputFolder: outputFolderInput.value.trim(),
+                    outputName: outputNameInput ? outputNameInput.value.trim() : '',
+                    startTime: formatTimeToHHMMSS(startSeconds),
+                    endTime: formatTimeToHHMMSS(endSeconds),
+                    cropBox: getCutCropBoxPosition(),
+                    splitDuration: splitSeconds,
+                    removeAudio: !!(removeAudioCheckbox && removeAudioCheckbox.checked)
+                });
+
+                if (result && result.success) {
+                    setCutProgress(100, 'Hoàn thành');
+                    if (outputEl) outputEl.textContent = result.outputPattern ? `Đã xuất: ${result.outputPattern}` : `Đã xuất: ${result.outputPath}`;
+                    showToast('Đã cắt video xong', 'success');
+                } else {
+                    setCutProgress(0, 'Lỗi');
+                    showToast('Lỗi cắt video: ' + (result?.error || 'Không xác định'), 'error');
+                }
+            } catch (error) {
+                console.error('Cut video error:', error);
+                setCutProgress(0, 'Lỗi');
+                showToast('Lỗi cắt video: ' + error.message, 'error');
+            } finally {
+                setCutBusy(false);
+            }
+        });
+    }
+
+    if (window.electronAPI.onCutVideoProgress) {
+        window.electronAPI.onCutVideoProgress((data) => {
+            if (!data) return;
+            setCutProgress(data.progress || 0, data.message || 'Đang cắt video...');
+        });
+    }
+
+    initializeCutCropBoxInteractions(cropBox, previewContainer, () => {
+        return cropAspectSelect && cropAspectSelect.value === '16:9' ? 16 / 9 : null;
+    });
+}
+
+function initializeCutCropBoxInteractions(cropBox, container, getAspectRatio = () => null) {
+    if (!cropBox || !container) return;
+
+    const state = {
+        active: false,
+        mode: null,
+        handle: null,
+        pointerId: null,
+        startX: 0,
+        startY: 0,
+        startRect: null,
+        containerRect: null
+    };
+
+    cropBox.addEventListener('pointerdown', (event) => {
+        event.preventDefault();
+        const handle = event.target.dataset?.handle || null;
+        const boxRect = cropBox.getBoundingClientRect();
+        const containerRect = container.getBoundingClientRect();
+
+        state.active = true;
+        state.mode = handle ? 'resize' : 'drag';
+        state.handle = handle;
+        state.pointerId = event.pointerId;
+        state.startX = event.clientX;
+        state.startY = event.clientY;
+        state.containerRect = containerRect;
+        state.startRect = {
+            left: boxRect.left - containerRect.left,
+            top: boxRect.top - containerRect.top,
+            width: boxRect.width,
+            height: boxRect.height
+        };
+
+        cropBox.setPointerCapture(event.pointerId);
+    });
+
+    cropBox.addEventListener('pointermove', (event) => {
+        if (!state.active || state.pointerId !== event.pointerId || !state.startRect || !state.containerRect) return;
+        event.preventDefault();
+
+        const deltaX = event.clientX - state.startX;
+        const deltaY = event.clientY - state.startY;
+        const minSize = 40;
+        let { left, top, width, height } = { ...state.startRect };
+
+        if (state.mode === 'drag') {
+            left += deltaX;
+            top += deltaY;
+        } else {
+            switch (state.handle) {
+                case 'nw':
+                    left += deltaX; top += deltaY; width -= deltaX; height -= deltaY; break;
+                case 'ne':
+                    top += deltaY; width += deltaX; height -= deltaY; break;
+                case 'sw':
+                    left += deltaX; width -= deltaX; height += deltaY; break;
+                case 'se':
+                    width += deltaX; height += deltaY; break;
+                case 'n':
+                    top += deltaY; height -= deltaY; break;
+                case 's':
+                    height += deltaY; break;
+                case 'w':
+                    left += deltaX; width -= deltaX; break;
+                case 'e':
+                    width += deltaX; break;
+            }
+        }
+
+        width = Math.max(minSize, width);
+        height = Math.max(minSize, height);
+
+        const aspectRatio = state.mode === 'resize' ? getAspectRatio() : null;
+        if (aspectRatio) {
+            const startRight = state.startRect.left + state.startRect.width;
+            const startBottom = state.startRect.top + state.startRect.height;
+            const startCenterX = state.startRect.left + state.startRect.width / 2;
+            const startCenterY = state.startRect.top + state.startRect.height / 2;
+            const handle = state.handle || '';
+
+            if (handle === 'n' || handle === 's') {
+                width = height * aspectRatio;
+            } else {
+                height = width / aspectRatio;
+            }
+
+            width = Math.max(minSize, width);
+            height = Math.max(minSize, height);
+
+            if (width > state.containerRect.width) {
+                width = state.containerRect.width;
+                height = width / aspectRatio;
+            }
+            if (height > state.containerRect.height) {
+                height = state.containerRect.height;
+                width = height * aspectRatio;
+            }
+
+            if (handle.includes('w')) {
+                left = startRight - width;
+            } else if (handle === 'n' || handle === 's') {
+                left = startCenterX - width / 2;
+            }
+
+            if (handle.includes('n')) {
+                top = startBottom - height;
+            } else if (handle === 'w' || handle === 'e') {
+                top = startCenterY - height / 2;
+            }
+        }
+
+        left = Math.max(0, Math.min(left, state.containerRect.width - width));
+        top = Math.max(0, Math.min(top, state.containerRect.height - height));
+
+        if (left + width > state.containerRect.width) width = state.containerRect.width - left;
+        if (top + height > state.containerRect.height) height = state.containerRect.height - top;
+
+        if (aspectRatio) {
+            height = width / aspectRatio;
+            if (top + height > state.containerRect.height) {
+                height = state.containerRect.height - top;
+                width = height * aspectRatio;
+            }
+            if (left + width > state.containerRect.width) {
+                left = state.containerRect.width - width;
+            }
+            left = Math.max(0, left);
+            top = Math.max(0, top);
+        }
+
+        cropBox.style.left = `${left}px`;
+        cropBox.style.top = `${top}px`;
+        cropBox.style.width = `${width}px`;
+        cropBox.style.height = `${height}px`;
+    });
+
+    function endInteraction(event) {
+        if (!state.active || state.pointerId !== event.pointerId) return;
+        if (cropBox.hasPointerCapture(event.pointerId)) {
+            cropBox.releasePointerCapture(event.pointerId);
+        }
+        state.active = false;
+        state.mode = null;
+        state.handle = null;
+        state.pointerId = null;
+        state.startRect = null;
+        state.containerRect = null;
+    }
+
+    cropBox.addEventListener('pointerup', endInteraction);
+    cropBox.addEventListener('pointercancel', endInteraction);
+}
 
 // Download functionality
 const downloadUrlsTextarea = document.getElementById('download-urls');
@@ -3352,29 +4003,21 @@ async function downloadVideo(task) {
                 const fileName = task.fileName || 'Video';
                 const urlName = task.url ? (task.url.split('/').pop() || task.url) : 'Video';
 
-                console.log('Download completed, showing notification:', { fileName, urlName });
 
                 // Check if Notification API is available
                 if ('Notification' in window) {
                     // Request permission if needed
                     if (Notification.permission === 'default') {
                         Notification.requestPermission().then(permission => {
-                            console.log('Notification permission:', permission);
                             if (permission === 'granted') {
                                 showDownloadCompletedNotification(fileName, urlName);
-                            } else {
-                                console.warn('Notification permission denied');
                             }
                         }).catch(err => {
                             console.error('Error requesting notification permission:', err);
                         });
                     } else if (Notification.permission === 'granted') {
                         showDownloadCompletedNotification(fileName, urlName);
-                    } else {
-                        console.warn('Notification permission denied or not available');
                     }
-                } else {
-                    console.warn('Notification API not available in this browser');
                 }
             }
         } else {
@@ -3962,7 +4605,6 @@ function updateVideoTextQueueTable() {
         // Ensure startTime is set if video is processing but doesn't have it yet
         if (video.status === 'processing' && !video.startTime) {
             video.startTime = Date.now();
-            console.log('Setting startTime in updateVideoTextQueueTable for processing video:', video.id);
         }
 
         const row = document.createElement('tr');
@@ -4016,28 +4658,15 @@ function updateVideoTextQueueTable() {
                 duration = (video.endTime - video.startTime) / 1000;
             }
 
-            // Debug log
-            if (!duration || duration <= 0) {
-                console.log('Video completed but no duration:', {
-                    id: video.id,
-                    duration: video.duration,
-                    startTime: video.startTime,
-                    endTime: video.endTime,
-                    calculated: video.endTime && video.startTime ? (video.endTime - video.startTime) / 1000 : null
-                });
-            }
-
             if (duration && duration > 0) {
                 const durationText = formatDuration(duration);
                 statusText = `Hoàn thành trong ${durationText}`;
-                console.log('Displaying completion time:', durationText, 'for video', video.id);
             } else {
                 statusText = 'Hoàn thành';
             }
         } else if (video.status === 'stopped') {
             statusText = 'Đã dừng';
         } else if (video.status === 'error') {
-            console.log(' ########### overallProgress: ', overallProgress);
             if (overallProgress >= 50) {
                 statusText = 'Lỗi Báo cho Admin thêm Key';
             }else {
@@ -4341,9 +4970,6 @@ function setupVideoSubtitleProgressListener() {
                 const vTaskId = String(v.taskId);
                 const dataTaskId = String(data.taskId);
                 const match = vTaskId === dataTaskId;
-                if (!match) {
-                    console.log(`Comparing: '${vTaskId}' (${typeof v.taskId}) === '${dataTaskId}' (${typeof data.taskId}) = ${match}`);
-                }
                 return match;
             });
 
@@ -4360,13 +4986,11 @@ function setupVideoSubtitleProgressListener() {
                 // Set startTime when status becomes 'processing' or if already processing but no startTime
                 if (data.status === 'processing' && !video.startTime) {
                     video.startTime = Date.now();
-                    console.log('Video processing started, startTime set:', new Date(video.startTime).toISOString());
                 }
 
                 // Also set startTime if status is processing and we don't have it yet (fallback)
                 if (video.status === 'processing' && !video.startTime) {
                     video.startTime = Date.now();
-                    console.log('Video already processing but no startTime, setting now:', new Date(video.startTime).toISOString());
                 }
 
                 // Track end time and calculate duration when completed
@@ -4374,7 +4998,6 @@ function setupVideoSubtitleProgressListener() {
                     video.endTime = Date.now();
                     if (video.startTime) {
                         video.duration = (video.endTime - video.startTime) / 1000; // Duration in seconds
-                        console.log('Video completed, duration calculated:', video.duration, 'seconds');
                     } else {
                         // If startTime was not set, use current time as fallback
                         console.warn('Video completed but startTime was not set, using fallback');
@@ -4407,39 +5030,26 @@ function setupVideoSubtitleProgressListener() {
                     const videoName = video.videoPath ? (video.videoPath.split(/[/\\]/).pop()) : 'Video';
                     const fileName = video.srtPath ? (video.srtPath.split(/[/\\]/).pop()) : (video.videoPath ? (video.videoPath.split(/[/\\]/).pop().replace(/\.[^/.]+$/, '')) : 'File');
 
-                    console.log('Video completed, showing notification:', { videoName, fileName });
 
                     // Check if Notification API is available
                     if ('Notification' in window) {
                         // Request permission if needed
                         if (Notification.permission === 'default') {
                             Notification.requestPermission().then(permission => {
-                                console.log('Notification permission:', permission);
                                 if (permission === 'granted') {
                                     showVideoCompletedNotification(videoName, fileName);
-                                } else {
-                                    console.warn('Notification permission denied');
                                 }
                             }).catch(err => {
                                 console.error('Error requesting notification permission:', err);
                             });
                         } else if (Notification.permission === 'granted') {
                             showVideoCompletedNotification(videoName, fileName);
-                        } else {
-                            console.warn('Notification permission denied or not available');
                         }
-                    } else {
-                        console.warn('Notification API not available in this browser');
                     }
                 }
-            } else {
-                console.warn('✗ Video not found for taskId:', data.taskId, 'Type:', typeof data.taskId);
-                console.warn('Available videos:', videoTextQueue.map(v => ({ id: v.id, taskId: v.taskId, taskIdType: typeof v.taskId, status: v.status })));
             }
         });
     } else {
-        console.error('✗ onVideoSubtitleProgress not available!');
-        console.error('electronAPI:', window.electronAPI);
         // Thử lại sau 1 giây
         setTimeout(() => {
             if (window.electronAPI && window.electronAPI.onVideoSubtitleProgress) {
