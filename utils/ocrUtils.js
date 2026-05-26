@@ -235,7 +235,7 @@ async function extractTextWithGoogleVision(imageSource, apiKeysOverride = null) 
     for (const apiKey of activeApiKeys) {
       try {
         const apiVersion = 'v1beta';
-        const model = 'gemini-3.1-flash-lite-preview';
+        const model = 'gemini-3.1-flash-lite';
         const apiUrl = `https://generativelanguage.googleapis.com/${apiVersion}/models/${model}:generateContent?key=${apiKey}`;
 
         const response = await axios.post(apiUrl, requestBody, {
