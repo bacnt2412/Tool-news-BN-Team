@@ -387,19 +387,40 @@ https://www.youtube.com/watch?v=..."
                                 <input type="text" id="cut-output-name" class="settings-input" placeholder="Để trống = tự đặt tên" />
                             </div>
 
-                            <button id="cut-video-run-btn" class="btn-primary">
-                                <span class="btn-text">✂️ Cắt video</span>
-                                <span class="btn-loader" style="display: none">⏳ Đang cắt...</span>
-                            </button>
+                            <button id="cut-queue-save-btn" class="btn-primary">💾 Lưu vào danh sách</button>
+                        </div>
+                    </div>
 
-                            <div id="cut-video-progress-section" class="download-progress-section" style="display: none">
-                                <h3>Tiến trình cắt video</h3>
-                                <div class="download-progress-bar cut-video-progress-bar">
-                                    <div id="cut-video-progress-fill" class="download-progress-fill" style="width: 0%">0%</div>
-                                </div>
-                                <div id="cut-video-status" class="cut-video-status"></div>
-                                <div id="cut-video-output" class="cut-video-output"></div>
+                    <div class="cut-queue-section">
+                        <div class="cut-queue-header">
+                            <h3>📋 Danh sách render <span id="cut-queue-count" class="cut-queue-count">(0 mục)</span></h3>
+                            <div class="cut-queue-actions">
+                                <button id="cut-queue-render-btn" class="btn-primary">▶️ Render</button>
+                                <button id="cut-queue-clear-btn" class="btn-secondary">🗑 Xóa hết</button>
                             </div>
+                        </div>
+                        <div class="cut-queue-table-wrapper">
+                            <table class="cut-queue-table">
+                                <thead>
+                                    <tr>
+                                        <th style="width:36px">#</th>
+                                        <th>Tên video</th>
+                                        <th style="width:160px">Thời gian</th>
+                                        <th>Thư mục xuất</th>
+                                        <th style="width:160px">Tên file xuất</th>
+                                        <th style="width:120px">Trạng thái</th>
+                                        <th style="width:36px"></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="cut-queue-tbody"></tbody>
+                            </table>
+                        </div>
+                        <div id="cut-queue-progress-section" class="download-progress-section" style="display: none">
+                            <div class="cut-queue-progress-title">Đang render: <span id="cut-queue-current-name"></span></div>
+                            <div class="download-progress-bar cut-video-progress-bar">
+                                <div id="cut-queue-progress-fill" class="download-progress-fill" style="width: 0%">0%</div>
+                            </div>
+                            <div id="cut-queue-status" class="cut-video-status"></div>
                         </div>
                     </div>
                 </div>

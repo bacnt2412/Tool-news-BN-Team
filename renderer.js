@@ -2793,6 +2793,10 @@ tabButtons.forEach(button => {
 let cutVideoInitialized = false;
 let cutVideoPath = null;
 let cutVideoDurationSeconds = 0;
+let cutVideoQueue = [];
+let cutQueueIdCounter = 0;
+let cutQueueRendering = false;
+let cutQueueActive = false;
 
 function setupCutVideoTab() {
     if (cutVideoInitialized) return;
@@ -2822,31 +2826,26 @@ function setupCutVideoTab() {
     const outputFolderInput = document.getElementById('cut-output-folder');
     const selectFolderBtn = document.getElementById('cut-select-folder-btn');
     const outputNameInput = document.getElementById('cut-output-name');
-    const runBtn = document.getElementById('cut-video-run-btn');
-    const progressSection = document.getElementById('cut-video-progress-section');
-    const progressFill = document.getElementById('cut-video-progress-fill');
-    const statusEl = document.getElementById('cut-video-status');
-    const outputEl = document.getElementById('cut-video-output');
+    const saveBtn = document.getElementById('cut-queue-save-btn');
+    const renderBtn = document.getElementById('cut-queue-render-btn');
+    const clearBtn = document.getElementById('cut-queue-clear-btn');
+    const queueCountEl = document.getElementById('cut-queue-count');
+    const queueTbody = document.getElementById('cut-queue-tbody');
+    const queueProgressSection = document.getElementById('cut-queue-progress-section');
+    const queueProgressFill = document.getElementById('cut-queue-progress-fill');
+    const queueStatusEl = document.getElementById('cut-queue-status');
+    const queueCurrentNameEl = document.getElementById('cut-queue-current-name');
 
     if (!preview || !selectVideoBtn) return;
 
-    function setCutProgress(progress, message) {
+    function setQueueProgress(progress, message) {
         const safeProgress = Math.max(0, Math.min(100, Math.round(Number(progress) || 0)));
-        if (progressSection) progressSection.style.display = 'block';
-        if (progressFill) {
-            progressFill.style.width = `${safeProgress}%`;
-            progressFill.textContent = `${safeProgress}%`;
+        if (queueProgressSection) queueProgressSection.style.display = 'block';
+        if (queueProgressFill) {
+            queueProgressFill.style.width = `${safeProgress}%`;
+            queueProgressFill.textContent = `${safeProgress}%`;
         }
-        if (statusEl && message) statusEl.textContent = message;
-    }
-
-    function setCutBusy(isBusy) {
-        if (!runBtn) return;
-        const btnText = runBtn.querySelector('.btn-text');
-        const btnLoader = runBtn.querySelector('.btn-loader');
-        runBtn.disabled = isBusy;
-        if (btnText) btnText.style.display = isBusy ? 'none' : 'inline';
-        if (btnLoader) btnLoader.style.display = isBusy ? 'inline' : 'none';
+        if (queueStatusEl && message) queueStatusEl.textContent = message;
     }
 
     function updateCutTimeDisplays() {
@@ -2985,8 +2984,7 @@ function setupCutVideoTab() {
             if (outputFolderInput && !outputFolderInput.value.trim()) {
                 outputFolderInput.value = getDirName(cutVideoPath);
             }
-            if (outputEl) outputEl.textContent = '';
-            setCutProgress(0, 'Đã chọn video, hãy chỉnh thời gian và khung crop.');
+            setQueueProgress(0, 'Đã chọn video, hãy chỉnh thời gian và khung crop.');
         } catch (error) {
             console.error('Cut video select error:', error);
             showToast('Lỗi chọn video: ' + error.message, 'error');
@@ -3137,86 +3135,169 @@ function setupCutVideoTab() {
         });
     }
 
-    if (runBtn) {
-        runBtn.addEventListener('click', async () => {
-            if (!cutVideoPath) {
-                showToast('Vui lòng chọn video trước', 'error');
-                return;
-            }
-            if (!outputFolderInput || !outputFolderInput.value.trim()) {
-                showToast('Vui lòng chọn thư mục lưu', 'error');
-                return;
-            }
+    function updateQueueTable() {
+        if (!queueTbody) return;
+        if (queueCountEl) queueCountEl.textContent = `(${cutVideoQueue.length} mục)`;
 
-            const startSeconds = parseTimeInput(startInput ? startInput.value.trim() : '0');
-            const endSeconds = parseTimeInput(endInput ? endInput.value.trim() : '');
-            const splitSeconds = splitDurationInput && splitDurationInput.value.trim()
-                ? parseTimeInput(splitDurationInput.value.trim())
-                : null;
+        queueTbody.innerHTML = '';
+        cutVideoQueue.forEach((item, index) => {
+            const statusHtml = {
+                pending: '<span class="cut-queue-badge cut-queue-badge-pending">⏳ Chờ</span>',
+                rendering: '<span class="cut-queue-badge cut-queue-badge-rendering">🔄 Đang render</span>',
+                done: '<span class="cut-queue-badge cut-queue-badge-done">✅ Xong</span>',
+                error: `<span class="cut-queue-badge cut-queue-badge-error" title="${item.errorMsg || ''}">❌ Lỗi</span>`
+            }[item.status] || '';
 
-            if (startSeconds === null) {
-                showToast('Thời gian bắt đầu không hợp lệ', 'error');
-                return;
-            }
-            if (endSeconds === null) {
-                showToast('Thời gian kết thúc không hợp lệ', 'error');
-                return;
-            }
-            if (startSeconds >= endSeconds) {
-                showToast('Thời gian bắt đầu phải nhỏ hơn thời gian kết thúc', 'error');
-                return;
-            }
-            if (cutVideoDurationSeconds && endSeconds > cutVideoDurationSeconds + 1) {
-                showToast('Thời gian kết thúc vượt quá độ dài video', 'error');
-                return;
-            }
-            if (splitSeconds !== null && splitSeconds <= 0) {
-                showToast('Thời gian cắt nhỏ không hợp lệ', 'error');
-                return;
-            }
-            if (splitSeconds !== null && splitSeconds >= (endSeconds - startSeconds)) {
-                showToast('Thời gian cắt nhỏ phải nhỏ hơn độ dài đoạn video', 'error');
-                return;
-            }
+            const canRemove = item.status !== 'rendering';
+            const tr = document.createElement('tr');
+            tr.innerHTML = `
+                <td>${index + 1}</td>
+                <td class="cut-queue-td-ellipsis" title="${item.displayName}">${item.displayName}</td>
+                <td>${item.startTime} → ${item.endTime}</td>
+                <td class="cut-queue-td-ellipsis" title="${item.outputFolder}">${item.outputFolder}</td>
+                <td class="cut-queue-td-ellipsis" title="${item.outputName || ''}">${item.outputName || '(tự đặt)'}</td>
+                <td>${statusHtml}</td>
+                <td>${canRemove ? `<button class="cut-queue-remove-btn" data-id="${item.id}" title="Xóa">✕</button>` : ''}</td>
+            `;
+            queueTbody.appendChild(tr);
+        });
+
+        queueTbody.querySelectorAll('.cut-queue-remove-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                const id = Number(btn.dataset.id);
+                cutVideoQueue = cutVideoQueue.filter(it => it.id !== id);
+                updateQueueTable();
+            });
+        });
+    }
+
+    function updateRenderBtnState() {
+        if (!renderBtn) return;
+        renderBtn.textContent = cutQueueRendering ? '⏹ Dừng' : '▶️ Render';
+        renderBtn.className = cutQueueRendering ? 'btn-danger' : 'btn-primary';
+    }
+
+    async function runCutQueue() {
+        if (cutQueueActive) return;
+        cutQueueActive = true;
+        cutQueueRendering = true;
+        updateRenderBtnState();
+
+        while (cutQueueRendering) {
+            const item = cutVideoQueue.find(it => it.status === 'pending');
+            if (!item) break;
+
+            item.status = 'rendering';
+            updateQueueTable();
+            if (queueCurrentNameEl) queueCurrentNameEl.textContent = item.displayName;
+            setQueueProgress(1, 'Đang chuẩn bị FFmpeg...');
 
             try {
-                setCutBusy(true);
-                if (outputEl) outputEl.textContent = '';
-                setCutProgress(1, 'Đang chuẩn bị FFmpeg...');
-
                 const result = await window.electronAPI.cutVideo({
-                    videoPath: cutVideoPath,
-                    outputFolder: outputFolderInput.value.trim(),
-                    outputName: outputNameInput ? outputNameInput.value.trim() : '',
-                    startTime: formatTimeToHHMMSS(startSeconds),
-                    endTime: formatTimeToHHMMSS(endSeconds),
-                    cropBox: getCutCropBoxPosition(),
-                    splitDuration: splitSeconds,
-                    removeAudio: !!(removeAudioCheckbox && removeAudioCheckbox.checked)
+                    videoPath: item.videoPath,
+                    outputFolder: item.outputFolder,
+                    outputName: item.outputName,
+                    startTime: item.startTime,
+                    endTime: item.endTime,
+                    cropBox: item.cropBox,
+                    splitDuration: item.splitDuration,
+                    removeAudio: item.removeAudio
                 });
 
                 if (result && result.success) {
-                    setCutProgress(100, 'Hoàn thành');
-                    if (outputEl) outputEl.textContent = result.outputPattern ? `Đã xuất: ${result.outputPattern}` : `Đã xuất: ${result.outputPath}`;
-                    showToast('Đã cắt video xong', 'success');
+                    item.status = 'done';
+                    setQueueProgress(100, 'Hoàn thành');
+                    showToast(`Đã xong: ${item.displayName}`, 'success');
                 } else {
-                    setCutProgress(0, 'Lỗi');
-                    showToast('Lỗi cắt video: ' + (result?.error || 'Không xác định'), 'error');
+                    item.status = 'error';
+                    item.errorMsg = result?.error || 'Không xác định';
+                    setQueueProgress(0, `Lỗi: ${item.errorMsg}`);
+                    showToast(`Lỗi render: ${item.errorMsg}`, 'error');
                 }
-            } catch (error) {
-                console.error('Cut video error:', error);
-                setCutProgress(0, 'Lỗi');
-                showToast('Lỗi cắt video: ' + error.message, 'error');
-            } finally {
-                setCutBusy(false);
+            } catch (err) {
+                item.status = 'error';
+                item.errorMsg = err.message || 'Lỗi không xác định';
+                setQueueProgress(0, `Lỗi: ${item.errorMsg}`);
+                showToast(`Lỗi render: ${item.errorMsg}`, 'error');
             }
+
+            updateQueueTable();
+        }
+
+        cutQueueRendering = false;
+        cutQueueActive = false;
+        updateRenderBtnState();
+    }
+
+    function buildQueueItem() {
+        if (!cutVideoPath) { showToast('Vui lòng chọn video trước', 'error'); return null; }
+        if (!outputFolderInput || !outputFolderInput.value.trim()) { showToast('Vui lòng chọn thư mục lưu', 'error'); return null; }
+
+        const startSeconds = parseTimeInput(startInput ? startInput.value.trim() : '0');
+        const endSeconds = parseTimeInput(endInput ? endInput.value.trim() : '');
+        const splitSeconds = splitDurationInput && splitDurationInput.value.trim()
+            ? parseTimeInput(splitDurationInput.value.trim()) : null;
+
+        if (startSeconds === null) { showToast('Thời gian bắt đầu không hợp lệ', 'error'); return null; }
+        if (endSeconds === null) { showToast('Thời gian kết thúc không hợp lệ', 'error'); return null; }
+        if (startSeconds >= endSeconds) { showToast('Thời gian bắt đầu phải nhỏ hơn thời gian kết thúc', 'error'); return null; }
+        if (cutVideoDurationSeconds && endSeconds > cutVideoDurationSeconds + 1) { showToast('Thời gian kết thúc vượt quá độ dài video', 'error'); return null; }
+        if (splitSeconds !== null && splitSeconds <= 0) { showToast('Thời gian cắt nhỏ không hợp lệ', 'error'); return null; }
+        if (splitSeconds !== null && splitSeconds >= (endSeconds - startSeconds)) { showToast('Thời gian cắt nhỏ phải nhỏ hơn độ dài đoạn video', 'error'); return null; }
+
+        return {
+            id: ++cutQueueIdCounter,
+            videoPath: cutVideoPath,
+            displayName: getBaseName(cutVideoPath),
+            outputFolder: outputFolderInput.value.trim(),
+            outputName: outputNameInput ? outputNameInput.value.trim() : '',
+            startTime: formatTimeToHHMMSS(startSeconds),
+            endTime: formatTimeToHHMMSS(endSeconds),
+            cropBox: getCutCropBoxPosition(),
+            splitDuration: splitSeconds,
+            removeAudio: !!(removeAudioCheckbox && removeAudioCheckbox.checked),
+            status: 'pending',
+            errorMsg: ''
+        };
+    }
+
+    if (saveBtn) {
+        saveBtn.addEventListener('click', () => {
+            const item = buildQueueItem();
+            if (!item) return;
+            cutVideoQueue.push(item);
+            updateQueueTable();
+            showToast('Đã thêm vào danh sách render', 'success');
+            if (!cutQueueActive) runCutQueue();
+        });
+    }
+
+    if (renderBtn) {
+        renderBtn.addEventListener('click', () => {
+            if (cutQueueRendering) {
+                cutQueueRendering = false;
+                updateRenderBtnState();
+                showToast('Sẽ dừng sau khi hoàn thành video hiện tại', 'info');
+            } else {
+                const hasPending = cutVideoQueue.some(it => it.status === 'pending');
+                if (!hasPending) { showToast('Không có video nào đang chờ trong danh sách', 'warning'); return; }
+                runCutQueue();
+            }
+        });
+    }
+
+    if (clearBtn) {
+        clearBtn.addEventListener('click', () => {
+            cutVideoQueue = cutVideoQueue.filter(it => it.status === 'rendering');
+            updateQueueTable();
+            showToast('Đã xóa các mục không hoạt động', 'success');
         });
     }
 
     if (window.electronAPI.onCutVideoProgress) {
         window.electronAPI.onCutVideoProgress((data) => {
             if (!data) return;
-            setCutProgress(data.progress || 0, data.message || 'Đang cắt video...');
+            setQueueProgress(data.progress || 0, data.message || 'Đang cắt video...');
         });
     }
 

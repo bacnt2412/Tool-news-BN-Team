@@ -117,7 +117,6 @@ function shouldDisableGoogleKey(status, detail) {
   const message = String(detail || '').toLowerCase();
 
   return (
-    status === 400 ||
     status === 401 ||
     status === 429 ||
     status === 403 ||
@@ -145,7 +144,17 @@ function disableGoogleKey(apiKey, status, detail) {
 }
 
 function getActiveGoogleApiKeys(apiKeys) {
-  return apiKeys.filter((apiKey) => !disabledGoogleKeys.has(apiKey));
+  const DISABLE_TTL_MS = 1 * 60 * 1000; // 1 phút
+  const now = Date.now();
+  return apiKeys.filter((apiKey) => {
+    const info = disabledGoogleKeys.get(apiKey);
+    if (!info) return true;
+    if (now - info.disabledAt > DISABLE_TTL_MS) {
+      disabledGoogleKeys.delete(apiKey);
+      return true;
+    }
+    return false;
+  });
 }
 
 function summarizeGoogleKeyErrors(errors) {
@@ -304,7 +313,15 @@ async function performSmartOCR(imageSource, keyIndex = null) {
       disabledGoogleKeys.clear();
     }
 
-    return await extractTextWithGoogleVision(imageSource, orderedKeys);
+    const result = await extractTextWithGoogleVision(imageSource, orderedKeys);
+
+    // Nếu thất bại và tất cả key vừa bị disable trong lần này, tự động retry 1 lần
+    if (!result.success && getActiveGoogleApiKeys(orderedKeys).length === 0) {
+      disabledGoogleKeys.clear();
+      return await extractTextWithGoogleVision(imageSource, orderedKeys);
+    }
+
+    return result;
   } catch (error) {
     console.error('Smart OCR Error:', error);
     return {
