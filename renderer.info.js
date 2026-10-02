@@ -22,13 +22,17 @@ export function setupInfoListeners() {
 
     // Settings modal buttons
     const settingsBtn = document.getElementById('settings-btn');
+    const logsBtn = document.getElementById('logs-btn');
     const closeSettingsBtn = document.getElementById('close-settings');
     const cancelSettingsBtn = document.getElementById('cancel-settings-btn');
     const saveSettingsBtn = document.getElementById('save-settings-btn');
+    const viewLogsBtn = document.getElementById('view-logs-btn');
 
     // Settings button is hidden
     // if (settingsBtn) settingsBtn.addEventListener('click', window.openSettings || (() => {}));
+    if (logsBtn) logsBtn.addEventListener('click', window.openLogs || (() => {}));
     if (closeSettingsBtn) closeSettingsBtn.addEventListener('click', window.closeSettings || (() => {}));
     if (cancelSettingsBtn) cancelSettingsBtn.addEventListener('click', window.closeSettings || (() => {}));
     if (saveSettingsBtn) saveSettingsBtn.addEventListener('click', window.saveSettings || (() => {}));
+    if (viewLogsBtn) viewLogsBtn.addEventListener('click', window.openLogs || (() => {}));
 }

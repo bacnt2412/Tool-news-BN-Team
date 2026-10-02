@@ -142,7 +142,9 @@ window.addResultRow = function(videoData, displayIndex, resultIndex) {
 		<td class="transcript-cell">
 			${videoData.subtitle ?
 			`<div id="transcript-${displayIndex}">${formatSubtitleForDisplay(videoData.subtitle)}</div>` :
-			'<span class="empty-state">Không có transcript</span>'}
+			(videoData.subtitleError
+				? `<span class="empty-state" title="${escapeHtml(videoData.subtitleError)}">Không tải được: ${escapeHtml(videoData.subtitleError)}</span>`
+				: '<span class="empty-state">Không có transcript</span>')}
 		</td>
 		<td>
 			<div class="action-buttons">

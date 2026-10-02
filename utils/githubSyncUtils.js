@@ -4,40 +4,49 @@
  */
 
 const axios = require('axios');
-const fs = require('fs');
-const path = require('path');
-const { app } = require('electron');
 const config = require('../config');
-const pathUtils = require('./pathUtils');
+const cookieUtils = require('./cookieUtils');
 
 // API endpoints từ config
 const SETTINGS_API = config.SETTINGS_API;
 const SETTINGS_TYPE = config.SETTINGS_TYPE;
 
 /**
+ * Chỉ lấy nội dung cookie đang được API đánh dấu ACTIVE.
+ * Dữ liệu API có dạng: { value: 'Netscape cookie content', status: 'ACTIVE' }.
+ */
+function getActiveYoutubeCookies(youtubeCookies) {
+  if (!Array.isArray(youtubeCookies)) {
+    return null;
+  }
+
+  return youtubeCookies
+    .filter(cookie => cookie && String(cookie.status || '').toUpperCase() === 'ACTIVE')
+    .map(cookie => cookie.value)
+    .filter(cookie => typeof cookie === 'string' && cookie.trim());
+}
+
+/**
  * Lưu cookies từ settings API vào local và store
- * @param {string} cookiesContent - Nội dung cookies từ API
+ * @param {string|string[]} cookiesContent - Nội dung cookie hoặc danh sách cookie từ API
  * @param {object} store - Electron store instance
  * @returns {Promise<{success: boolean, message: string}>}
  */
 async function syncCookiesFromAPI(cookiesContent, store) {
   try {
+    const cookies = cookieUtils.normalizeCookies(cookiesContent);
 
-    // Validate cookies format (Netscape cookie format)
-    if (!cookiesContent.includes('# Netscape HTTP Cookie File')) {
+    // Validate từng cookie trong mảng theo Netscape cookie format.
+    if (cookies.length === 0 || cookies.some(cookie => !cookie.includes('# Netscape HTTP Cookie File'))) {
       throw new Error('Invalid cookies format (not Netscape format)');
     }
 
-    // Tạo thư mục cookies nếu chưa có (trong bin/cookies)
-    const cookiesDir = pathUtils.getCookiesDir();
-
-    // Lưu cookies vào file
-    const cookiesFilePath = pathUtils.getCookiesFilePath();
-    fs.writeFileSync(cookiesFilePath, cookiesContent, 'utf8');
+    // Lưu mỗi cookie ra một file để yt-dlp có thể xoay vòng khi có nhiều tác vụ.
+    const cookiesFilePath = await cookieUtils.saveCookiesToFile(cookies);
 
     // Lưu cookies vào electron-store để hiển thị trong UI
     if (store) {
-      store.set('ytDlpCookies', cookiesContent);
+      store.set('ytDlpCookies', Array.isArray(cookiesContent) ? cookies : cookies[0]);
     }
 
 
@@ -107,11 +116,15 @@ async function syncSettingsFromAPI(store) {
     }
 
 
+    const activeYoutubeCookies = getActiveYoutubeCookies(settings.youtubeCookies);
+
     return {
       success: true,
       message: 'Settings đã được cập nhật từ API',
       settings: settings,
-      cookiesContent: settings.cookie // Trả về cookies để đồng bộ riêng
+      // API mới: chỉ dùng cookie có trạng thái ACTIVE.
+      // API cũ: giữ tương thích khi chưa có youtubeCookies.
+      cookiesContent: activeYoutubeCookies ?? (settings.cookies ?? settings.cookie)
     };
 
   } catch (error) {
@@ -147,8 +160,19 @@ async function syncAllFromAPI(store) {
 
   let cookiesResult = { success: false, message: 'Settings sync failed' };
 
+  // Nếu API có youtubeCookies nhưng không có phần tử ACTIVE, xóa cookie cũ
+  // để app không vô tình tiếp tục dùng cookie INACTIVE.
+  if (settingsResult.success && Array.isArray(settingsResult.cookiesContent) && settingsResult.cookiesContent.length === 0) {
+    cookieUtils.deleteCookiesFile();
+    if (store) {
+      store.set('ytDlpCookies', []);
+    }
+    cookiesResult = {
+      success: false,
+      message: 'Đã hết YouTube cookie ACTIVE. Vui lòng liên hệ Admin để bật hoặc cập nhật cookie.'
+    };
   // Nếu settings sync thành công và có cookies, đồng bộ cookies
-  if (settingsResult.success && settingsResult.cookiesContent) {
+  } else if (settingsResult.success && settingsResult.cookiesContent) {
     cookiesResult = await syncCookiesFromAPI(settingsResult.cookiesContent, store);
   } else if (settingsResult.success) {
     cookiesResult = { success: false, message: 'No cookies found in settings' };
@@ -170,6 +194,7 @@ async function syncAllFromAPI(store) {
 }
 
 module.exports = {
+  getActiveYoutubeCookies,
   syncCookiesFromAPI,
   syncSettingsFromAPI,
   syncAllFromAPI

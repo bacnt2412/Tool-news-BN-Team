@@ -4,6 +4,7 @@ const { execFile } = require('child_process');
 const fs = require('fs');
 const crypto = require('crypto');
 const Store = require('electron-store');
+const log = require('electron-log');
 
 // Import config
 const config = require('./config');
@@ -28,6 +29,11 @@ const cutVideoUtils = require('./utils/cutVideoUtils');
 // Khởi tạo store để lưu settings
 const store = new Store();
 
+// The log viewer reads this file so yt-dlp/transcript failures can be checked
+// without opening DevTools.
+log.transports.file.level = 'info';
+log.info(`Application started (version ${app.getVersion()})`);
+
 // Polyfill crypto for libraries that expect Web Crypto
 if (typeof global.crypto === 'undefined') {
   global.crypto = crypto;
@@ -46,14 +52,18 @@ function initializeUtils() {
   // Set dependencies for videoUtils
   videoUtils.setDependencies({
     findYtDlpPath: ytDlpUtils.findYtDlpPath,
-    addCookiesToArgs: cookieUtils.addCookiesToArgs
+    addCookiesToArgs: cookieUtils.addCookiesToArgs,
+    getCookieHeaderForUrl: cookieUtils.getCookieHeaderForUrl,
+    getCookiesFilePaths: cookieUtils.getCookiesFilePaths
   });
   
   // Set dependencies for downloadUtils
   downloadUtils.setDependencies({
     mainWindow: mainWindow,
     findYtDlpPath: ytDlpUtils.findYtDlpPath,
-    addCookiesToArgs: cookieUtils.addCookiesToArgs
+    addCookiesToArgs: cookieUtils.addCookiesToArgs,
+    getCookiesFilePaths: cookieUtils.getCookiesFilePaths,
+    getNextCookiesFilePath: cookieUtils.getNextCookiesFilePath
   });
 
   cutVideoUtils.setDependencies({
@@ -142,7 +152,7 @@ app.whenReady().then(async () => {
 
   // Load cookie file từ store nếu có
   const savedCookies = store.get('ytDlpCookies', '');
-  if (savedCookies && savedCookies.trim()) {
+  if (cookieUtils.normalizeCookies(savedCookies).length > 0) {
     try {
       await cookieUtils.saveCookiesToFile(savedCookies);
     } catch (error) {
@@ -257,10 +267,14 @@ const detectOriginalLanguageFromListSubs = videoUtils.detectOriginalLanguageFrom
 const downloadSubtitle = videoUtils.downloadSubtitle;
 const downloadSubtitleFallback = videoUtils.downloadSubtitleFallback;
 
-// IPC handler để lấy thông tin video
-ipcMain.handle('get-video-info', async (event, videoUrl) => {
+// IPC handler để lấy thông tin video. Download tab only needs metadata for
+// naming and explicitly disables transcript retrieval.
+ipcMain.handle('get-video-info', async (event, videoUrl, options = {}) => {
   try {
+    log.info(`Getting video info: ${videoUrl}`);
+    const includeTranscript = options?.includeTranscript !== false;
     const ytDlpPath = findYtDlpPath();
+    const videoCookieFilePath = cookieUtils.getNextCookiesFilePath();
 
     // Lấy thông tin video dạng JSON
     const args = [
@@ -272,7 +286,7 @@ ipcMain.handle('get-video-info', async (event, videoUrl) => {
     ];
 
     // Thêm cookie nếu có
-    cookieUtils.addCookiesToArgs(args);
+    cookieUtils.addCookiesToArgs(args, videoCookieFilePath);
     ytDlpUtils.addEjsRuntimeArgs(args);
 
     const videoInfo = await new Promise((resolve, reject) => {
@@ -306,22 +320,44 @@ ipcMain.handle('get-video-info', async (event, videoUrl) => {
     // Không tải thumbnail ngay, chỉ tải khi cần OCR
     // Thumbnail URL đã có trong result.thumbnail để hiển thị trực tiếp
 
-    // Lấy subtitle/transcript
-    try {
-      const subtitlePath = await videoUtils.downloadSubtitle(videoUrl, result.videoId, videoInfo);
-      if (subtitlePath && fs.existsSync(subtitlePath)) {
-        const subtitleContent = fs.readFileSync(subtitlePath, 'utf-8');
-        result.subtitle = subtitleContent;
-        result.subtitlePath = subtitlePath;
+    if (includeTranscript) {
+      const availableSubtitleLanguages = [
+        ...Object.keys(videoInfo.subtitles || {}),
+        ...Object.keys(videoInfo.automatic_captions || {})
+      ];
+      log.info(`Video ${result.videoId}: original audio=${videoInfo.original_language || videoInfo.default_audio_language || 'unknown'}; caption tracks=${availableSubtitleLanguages.join(', ') || 'none'}`);
+
+      // Chỉ tab Lấy thông tin cần subtitle/transcript.
+      try {
+        const subtitlePath = await videoUtils.downloadSubtitle(
+          videoUrl,
+          result.videoId,
+          videoInfo,
+          videoCookieFilePath
+        );
+        if (subtitlePath && fs.existsSync(subtitlePath)) {
+          const subtitleContent = fs.readFileSync(subtitlePath, 'utf-8');
+          result.subtitle = subtitleContent;
+          result.subtitlePath = subtitlePath;
+          log.info(`Transcript ready for video ${result.videoId} (${Buffer.byteLength(subtitleContent, 'utf8')} bytes)`);
+        }
+      } catch (error) {
+        console.error('Error downloading subtitle:', error);
+        log.warn(`Transcript unavailable for video ${result.videoId}: ${error.message || 'Unknown error'}`);
+        // Keep the failed transcript empty so the renderer does not present the
+        // error text as copyable transcript content. Expose the real reason for
+        // support and diagnosis instead of replacing it with a generic message.
+        result.subtitle = '';
+        result.subtitleError = error.message || 'Không rõ nguyên nhân';
       }
-    } catch (error) {
-      console.error('Error downloading subtitle:', error);
-      result.subtitle = 'Không thể tải subtitle';
+    } else {
+      log.info(`Video metadata ready for download: ${result.videoId}`);
     }
 
     return { success: true, data: result };
   } catch (error) {
     console.error('Error getting video info:', error);
+    log.error(`Unable to get video info for ${videoUrl}: ${error.message || 'Unknown error'}`);
     return {
       success: false,
       error: error.message || 'Không thể lấy thông tin video. Đảm bảo yt-dlp đã được cài đặt và có trong PATH.'
@@ -479,6 +515,39 @@ ipcMain.handle('get-settings', async () => {
   };
 });
 
+ipcMain.handle('get-app-logs', async () => {
+  try {
+    const logPath = log.transports.file.getFile().path;
+    if (!fs.existsSync(logPath)) {
+      return { content: '', path: logPath };
+    }
+
+    // Avoid a huge IPC payload for old, large log files.
+    const stats = fs.statSync(logPath);
+    const maxBytes = 250 * 1024;
+    const start = Math.max(0, stats.size - maxBytes);
+    const length = stats.size - start;
+    const file = fs.openSync(logPath, 'r');
+    const buffer = Buffer.alloc(length);
+    fs.readSync(file, buffer, 0, length, start);
+    fs.closeSync(file);
+
+    return {
+      content: `${start > 0 ? '[Chỉ hiển thị phần cuối của file log]\n\n' : ''}${buffer.toString('utf8')}`,
+      path: logPath
+    };
+  } catch (error) {
+    log.error(`Unable to read log file: ${error.message || 'Unknown error'}`);
+    throw new Error(`Không thể đọc log: ${error.message || 'Không rõ nguyên nhân'}`);
+  }
+});
+
+ipcMain.handle('show-app-log-in-folder', async () => {
+  const logPath = log.transports.file.getFile().path;
+  shell.showItemInFolder(logPath);
+  return { success: true, path: logPath };
+});
+
 ipcMain.handle('save-settings', async (event, settings) => {
   // Lưu OCR provider
   store.set('ocrProvider', 'google');
@@ -498,7 +567,7 @@ ipcMain.handle('save-settings', async (event, settings) => {
     store.set('ytDlpCookies', settings.ytDlpCookies);
 
     // Lưu cookie vào file nếu có
-    if (settings.ytDlpCookies && settings.ytDlpCookies.trim()) {
+    if (cookieUtils.normalizeCookies(settings.ytDlpCookies).length > 0) {
       try {
         await cookieUtils.saveCookiesToFile(settings.ytDlpCookies);
       } catch (error) {
@@ -667,7 +736,13 @@ ipcMain.handle('download-thumbnails-batch', async (event, options = {}) => {
 });
 
 ipcMain.handle('download-video', async (event, options) => {
-  return await downloadUtils.downloadVideo(options);
+  try {
+    return await downloadUtils.downloadVideo(options);
+  } catch (error) {
+    const errorMessage = error?.message || 'Không thể tải video.';
+    console.error(`Download video failed (task ${options?.taskId ?? 'unknown'}):`, errorMessage);
+    return { success: false, error: errorMessage };
+  }
 });
 
 ipcMain.handle('cut-video', async (event, options) => {

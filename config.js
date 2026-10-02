@@ -25,13 +25,13 @@ module.exports = {
   URL_GITHUB_RELEASES: 'https://github.com/bacnt2412/Tool-news-BN-Team/releases',
 
 
-  LICENSE_CHECK_API: 'http://bn.proeditor.vn/api/tool-news/check-license',
+  LICENSE_CHECK_API: 'https://bn.proeditor.vn/api/tool-news/check-license',
 
   /**
    * API lấy settings và cookies
    * GET: localhost:3000/api/tool-news/get-settings?type=BAC
    */
-  SETTINGS_API: 'http://bn.proeditor.vn/api/tool-news/get-settings',
+  SETTINGS_API: 'https://bn.proeditor.vn/api/tool-news/get-settings',
 
   /**
    * Type parameter cho API settings (theo user request)

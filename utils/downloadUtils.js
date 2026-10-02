@@ -8,16 +8,35 @@ const ytDlpUtils = require('./ytDlpUtils');
 let mainWindow;
 let findYtDlpPath;
 let addCookiesToArgs;
+let getCookiesFilePaths;
+let getNextCookiesFilePath;
+
+function isCookieErrorOutput(output) {
+  const normalizedOutput = String(output || '').toLowerCase();
+  return normalizedOutput.includes('sign in to confirm') ||
+    normalizedOutput.includes('--cookies-from-browser') ||
+    normalizedOutput.includes('--cookies for the authentication') ||
+    (normalizedOutput.includes('cookie') && (
+      normalizedOutput.includes('bot') ||
+      normalizedOutput.includes('authentication') ||
+      normalizedOutput.includes('expired') ||
+      normalizedOutput.includes('invalid') ||
+      normalizedOutput.includes('login') ||
+      normalizedOutput.includes('sign in')
+    ));
+}
 
 // Set dependencies (called from main.js)
 function setDependencies(deps) {
   mainWindow = deps.mainWindow;
   findYtDlpPath = deps.findYtDlpPath;
   addCookiesToArgs = deps.addCookiesToArgs;
+  getCookiesFilePaths = deps.getCookiesFilePaths;
+  getNextCookiesFilePath = deps.getNextCookiesFilePath;
 }
 
 // List formats và chọn format đúng hoặc gần nhất với độ phân giải mong muốn
-function selectBestFormat(videoUrl, targetHeight) {
+function selectBestFormat(videoUrl, targetHeight, cookieFilePath = null) {
   return new Promise((resolve, reject) => {
     const ytDlpPath = findYtDlpPath();
     const args = [
@@ -27,16 +46,13 @@ function selectBestFormat(videoUrl, targetHeight) {
     ];
 
     // Thêm cookies nếu có
-    addCookiesToArgs(args);
+    addCookiesToArgs(args, cookieFilePath);
     ytDlpUtils.addEjsRuntimeArgs(args);
 
     execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024 * 10, windowsHide: true }, (error, stdout, stderr) => {
       // Kiểm tra lỗi cookie trong output
       const output = stderr || stdout || '';
-      const isCookieError = output.includes('Sign in to confirm') || 
-                           (output.includes('cookies') && output.includes('bot')) ||
-                           output.includes('--cookies-from-browser') ||
-                           output.includes('--cookies for the authentication');
+      const isCookieError = isCookieErrorOutput(output);
       
       if (isCookieError) {
         reject(new Error('COOKIE_ERROR: Vui lòng cập nhật cookies trong Settings. YouTube yêu cầu xác thực để tránh bot.'));
@@ -239,10 +255,11 @@ function findFfmpegPath() {
 }
 
 // Build yt-dlp arguments for download
-function buildDownloadArgs(url, outputPath, quality, selectedFormat = null, downloadType = 'full', startTime = null, endTime = null, audioOnly = false) {
+function buildDownloadArgs(url, outputPath, quality, selectedFormat = null, downloadType = 'full', startTime = null, endTime = null, audioOnly = false, cookieFilePath = null) {
   // Tham khảo từ app.py: thứ tự arguments và các options quan trọng
   const args = [
     '--no-playlist',
+    '--force-overwrites', // Replace existing downloads, including older lower-resolution files.
     '--no-mtime',
     '--progress', // Enable progress output
     '--newline', // Use newline for progress (better parsing)
@@ -252,7 +269,6 @@ function buildDownloadArgs(url, outputPath, quality, selectedFormat = null, down
     '--retries', '10', // Retry download 10 times
     '--file-access-retries', '3', // Retry file access
     '--abort-on-unavailable-fragment', // Quan trọng: abort nếu fragment không có
-    '--no-part', // Don't use .part files (faster)
     '--no-write-info-json' // Don't write info json to save time
   ];
 
@@ -269,13 +285,16 @@ function buildDownloadArgs(url, outputPath, quality, selectedFormat = null, down
     args.push('--merge-output-format', 'mp4');
     // Lưu ý: --prefer-ffmpeg đã deprecated, không dùng nữa
   } else if (quality === 'best') {
-    args.push('-f', 'best');
+    // Include separate HD video/audio streams; "best" alone only selects combined formats.
+    args.push('-f', 'bestvideo*+bestaudio/best');
+    args.push('-S', 'res');
+    args.push('--merge-output-format', 'mp4');
   } else if (quality === 'worst') {
     args.push('-f', 'worst');
   }
 
   // Add cookies if available
-  addCookiesToArgs(args);
+  addCookiesToArgs(args, cookieFilePath);
   ytDlpUtils.addEjsRuntimeArgs(args);
 
   // Add segment download options if specified
@@ -347,12 +366,59 @@ function sendProgressUpdate(taskKey, progress, status) {
   }
 }
 
+function cleanDownloadError(output, code = null) {
+  const sanitizedOutput = String(output || '')
+    .replace(/\x1B\[[0-?]*[ -\/]*[@-~]/g, '')
+    .replace(/\r/g, '\n');
+  const lines = sanitizedOutput
+    .split('\n')
+    .map(line => line.trim())
+    .filter(Boolean);
+  const errorLines = lines.filter(line => /(^|\s)ERROR:/i.test(line));
+  const usefulLines = errorLines.length > 0 ? errorLines : lines.slice(-5);
+  const detail = [...new Set(usefulLines)].join(' | ');
+  const prefix = code === null ? 'Không thể khởi động yt-dlp' : `yt-dlp dừng với mã ${code}`;
+
+  return detail ? `${prefix}: ${detail}`.slice(0, 2000) : prefix;
+}
+
+function sendDownloadError(taskKey, error) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('download-progress', {
+      taskId: taskKey,
+      progress: 0,
+      status: 'error',
+      error
+    });
+  }
+}
+
+function sendCookieRetryUpdate(taskKey, attempt, totalAttempts, previousError) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('download-progress', {
+      taskId: taskKey,
+      progress: 0,
+      status: 'retrying-cookie',
+      attempt,
+      totalAttempts,
+      message: `Lượt tải trước bị lỗi. Đang đổi cookie và thử lại (${attempt}/${totalAttempts})...`,
+      previousError
+    });
+  }
+}
+
 // Find downloaded file
 function findDownloadedFile(folder, fileName) {
   try {
     const files = fs.readdirSync(folder);
     // Look for file starting with fileName
-    const downloadedFile = files.find(f => f.startsWith(fileName));
+    const downloadedFile = files.find(file => {
+      const normalizedFile = file.toLowerCase();
+      return file.startsWith(fileName) &&
+        !normalizedFile.endsWith('.part') &&
+        !normalizedFile.endsWith('.ytdl') &&
+        !normalizedFile.includes('.metadata-clean-');
+    });
 
     if (downloadedFile) {
       return path.join(folder, downloadedFile);
@@ -441,8 +507,9 @@ function stripMediaMetadata(filePath) {
   });
 }
 
-// Download video with progress tracking
-function downloadVideo(options) {
+// Run one complete download attempt with one pinned cookie. Format discovery
+// and media download must use the same YouTube session.
+function downloadVideoAttempt(options, cookieFilePath = null) {
   const { url, folder, fileName, quality, taskId, downloadType, startTime, endTime, audioOnly } = options;
   const taskKey = taskId !== undefined ? String(taskId) : Date.now().toString();
 
@@ -455,7 +522,7 @@ function downloadVideo(options) {
       if (!audioOnly && quality && quality.match(/^\d+p$/)) {
         const height = parseInt(quality.replace('p', ''));
         try {
-          selectedFormat = await selectBestFormat(url, height);
+          selectedFormat = await selectBestFormat(url, height, cookieFilePath);
         } catch (formatError) {
           // Nếu lỗi cookie, throw error để hiển thị thông báo
           if (formatError.message && formatError.message.includes('COOKIE_ERROR')) {
@@ -479,7 +546,17 @@ function downloadVideo(options) {
       }
 
       // Build yt-dlp arguments
-      const args = buildDownloadArgs(url, outputPath, quality, selectedFormat, downloadType, startTime, endTime, audioOnly);
+      const args = buildDownloadArgs(
+        url,
+        outputPath,
+        quality,
+        selectedFormat,
+        downloadType,
+        startTime,
+        endTime,
+        audioOnly,
+        cookieFilePath
+      );
 
       // Spawn yt-dlp process
       const downloadProcess = spawn(ytDlpPath, args, {
@@ -493,31 +570,12 @@ function downloadVideo(options) {
       let isFetching = true;
       let buffer = '';
 
-      // Send initial "fetching" status
-      sendProgressUpdate(taskKey, 0, 'fetching');
-
       // Parse progress from yt-dlp output
       // yt-dlp outputs progress to stderr by default
       downloadProcess.stderr.on('data', (data) => {
         stderr += data.toString();
         const output = data.toString();
         
-
-        // Kiểm tra lỗi cookie ngay khi xuất hiện
-        if (output.includes('Sign in to confirm') || 
-            (output.includes('cookies') && output.includes('bot')) ||
-            output.includes('--cookies-from-browser') ||
-            output.includes('--cookies for the authentication')) {
-          // Gửi thông báo lỗi cookie ngay lập tức
-          if (mainWindow && !mainWindow.isDestroyed()) {
-            mainWindow.webContents.send('download-progress', {
-              taskId: taskKey,
-              progress: 0,
-              status: 'cookie-error',
-              error: 'Vui lòng cập nhật cookies trong Settings để tiếp tục tải video. YouTube yêu cầu xác thực để tránh bot.'
-            });
-          }
-        }
 
         buffer += output;
 
@@ -562,6 +620,18 @@ function downloadVideo(options) {
         if (code === 0) {
           // Find the downloaded file
           const filePath = findDownloadedFile(folder, fileName);
+          let isValidFile = false;
+          try {
+            const fileStats = fs.statSync(filePath);
+            isValidFile = fileStats.isFile() && fileStats.size > 0;
+          } catch (_) {}
+
+          if (!isValidFile) {
+            const errorMessage = 'yt-dlp đã kết thúc nhưng không tạo được file video hợp lệ.';
+            reject(new Error(errorMessage));
+            return;
+          }
+
           await stripMediaMetadata(filePath);
           const downloadedFile = path.basename(filePath);
 
@@ -573,37 +643,101 @@ function downloadVideo(options) {
         } else {
           // Kiểm tra nếu lỗi liên quan đến cookie
           const errorOutput = stderr || stdout;
-          const isCookieError = errorOutput.includes('Sign in to confirm') || 
-                               errorOutput.includes('cookies') && errorOutput.includes('bot') ||
-                               errorOutput.includes('authentication') ||
-                               errorOutput.includes('--cookies-from-browser') ||
-                               errorOutput.includes('--cookies for the authentication');
+          const isCookieError = isCookieErrorOutput(errorOutput);
           
           if (isCookieError) {
-            // Gửi thông báo đến renderer để hiển thị cho người dùng
-            if (mainWindow && !mainWindow.isDestroyed()) {
-              mainWindow.webContents.send('download-progress', {
-                taskId: taskKey,
-                progress: 0,
-                status: 'cookie-error',
-                error: 'Vui lòng cập nhật cookies trong Settings để tiếp tục tải video. YouTube yêu cầu xác thực để tránh bot.'
-              });
-            }
             reject(new Error('COOKIE_ERROR: Vui lòng cập nhật cookies trong Settings. YouTube yêu cầu xác thực để tránh bot.'));
           } else {
-            reject(new Error(`Download failed với code ${code}: ${errorOutput}`));
+            const errorMessage = cleanDownloadError(errorOutput, code);
+            reject(new Error(errorMessage));
           }
         }
       });
 
       downloadProcess.on('error', (error) => {
-        reject(new Error(`Download error: ${error.message}`));
+        const errorMessage = cleanDownloadError(error.message);
+        reject(new Error(errorMessage));
       });
 
     } catch (error) {
       reject(error);
     }
   });
+}
+
+function getCookieAttemptOrder() {
+  const cookieFiles = typeof getCookiesFilePaths === 'function'
+    ? getCookiesFilePaths()
+    : [];
+
+  if (cookieFiles.length === 0) {
+    return [null];
+  }
+
+  const firstCookie = typeof getNextCookiesFilePath === 'function'
+    ? getNextCookiesFilePath()
+    : cookieFiles[0];
+
+  return [
+    firstCookie,
+    ...cookieFiles.filter(cookieFile => cookieFile !== firstCookie)
+  ];
+}
+
+// Download video with automatic cookie rotation. Only surface a final error
+// after every configured cookie has been tried.
+async function downloadVideo(options) {
+  const taskKey = options.taskId !== undefined
+    ? String(options.taskId)
+    : Date.now().toString();
+  const cookieAttempts = getCookieAttemptOrder();
+  const attemptErrors = [];
+
+  sendProgressUpdate(taskKey, 0, 'fetching');
+
+  for (let index = 0; index < cookieAttempts.length; index++) {
+    if (index > 0) {
+      sendCookieRetryUpdate(
+        taskKey,
+        index + 1,
+        cookieAttempts.length,
+        attemptErrors[index - 1]
+      );
+    }
+
+    try {
+      return await downloadVideoAttempt(options, cookieAttempts[index]);
+    } catch (error) {
+      attemptErrors.push(error?.message || 'Lỗi không xác định');
+    }
+  }
+
+  const lastError = attemptErrors[attemptErrors.length - 1] || 'Không thể tải video.';
+  const triedCookieCount = cookieAttempts.filter(Boolean).length;
+  const attemptSuffix = triedCookieCount > 1
+    ? ` Đã thử ${triedCookieCount} cookie nhưng đều thất bại.`
+    : triedCookieCount === 1
+      ? ' Không có cookie khác để thử.'
+      : '';
+  const allCookieErrors = attemptErrors.length > 0 &&
+    attemptErrors.every(error => error.includes('COOKIE_ERROR'));
+
+  if (allCookieErrors) {
+    const errorMessage = `COOKIE_ERROR: ${lastError.replace(/^COOKIE_ERROR:\s*/, '')}${attemptSuffix}`;
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('download-progress', {
+        taskId: taskKey,
+        progress: 0,
+        status: 'cookie-error',
+        error: errorMessage.replace(/^COOKIE_ERROR:\s*/, '')
+      });
+    }
+    throw new Error(errorMessage);
+  }
+
+  const errorMessage = `${lastError}${attemptSuffix}`;
+  sendDownloadError(taskKey, errorMessage);
+  throw new Error(errorMessage);
 }
 
 module.exports = {

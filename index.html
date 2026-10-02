@@ -79,6 +79,7 @@
                     </div>
                     <div style="display: flex; gap: 10px; align-items: center">
                         <span id="app-version" style="color: #666; font-size: 12px; margin-right: 10px">v1.0.0</span>
+                        <button id="logs-btn" class="btn-settings" title="Xem logs ứng dụng">📋 Logs</button>
                         <button id="check-update-btn" class="btn-settings" title="Kiểm tra cập nhật" style="display: none">🔄 Cập nhật</button>
                         <button id="settings-btn" class="btn-settings" title="Settings" style="display: none">⚙️ Settings</button>
                     </div>
@@ -246,6 +247,15 @@ https://www.youtube.com/watch?v=..."
                         <span class="btn-text">Bắt đầu tải</span>
                         <span class="btn-loader" style="display: none">⏳ Đang tải...</span>
                     </button>
+                    <div id="download-overall-progress" class="download-overall-progress" style="display: none" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+                        <div class="download-overall-header">
+                            <span id="download-overall-label">Đang chuẩn bị...</span>
+                            <span id="download-overall-percent">0%</span>
+                        </div>
+                        <div class="download-overall-track">
+                            <div id="download-overall-fill" class="download-overall-fill" style="width: 0%"></div>
+                        </div>
+                    </div>
                 </div>
 
                 <div id="download-progress-section" class="download-progress-section" style="display: none">
@@ -640,11 +650,31 @@ https://www.youtube.com/watch?v=..."
                         <small class="help-text">Cookie để truy cập video bị giới hạn. Có thể export từ browser extension hoặc lấy từ browser.</small>
                     </div>
                     <div class="settings-actions">
+                        <button id="view-logs-btn" type="button" class="btn-secondary">📋 Xem logs</button>
                         <button id="save-settings-btn" class="btn-primary">Lưu Settings</button>
                         <button id="cancel-settings-btn" class="btn-secondary">Hủy</button>
                     </div>
                     <div id="settings-status" class="settings-status" style="display: none"></div>
                 </div>
+            </div>
+        </div>
+
+        <!-- Application Log Viewer Modal -->
+        <div id="logs-modal" class="modal" style="display: none">
+            <div class="modal-content logs-modal-content">
+                <div class="modal-header">
+                    <h2>📋 Logs ứng dụng</h2>
+                    <span class="close" id="close-logs">&times;</span>
+                </div>
+                <div class="logs-toolbar">
+                    <span id="logs-path" class="logs-path"></span>
+                    <div class="logs-actions">
+                        <button id="refresh-logs-btn" type="button" class="btn-primary">🔄 Làm mới</button>
+                        <button id="copy-logs-btn" type="button" class="btn-secondary">📋 Copy logs</button>
+                        <button id="open-logs-folder-btn" type="button" class="btn-secondary">📂 Mở thư mục</button>
+                    </div>
+                </div>
+                <pre id="logs-content" class="logs-content">Đang tải logs...</pre>
             </div>
         </div>
 

@@ -5,11 +5,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getConfig: () => ipcRenderer.invoke('get-config'),
   
   // Video info
-  getVideoInfo: (url) => ipcRenderer.invoke('get-video-info', url),
+  getVideoInfo: (url, options = {}) => ipcRenderer.invoke('get-video-info', url, options),
   extractTextFromThumbnail: (thumbnailPath) => ipcRenderer.invoke('extract-text-from-thumbnail', thumbnailPath),
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   getSettings: () => ipcRenderer.invoke('get-settings'),
   saveSettings: (settings) => ipcRenderer.invoke('save-settings', settings),
+  getAppLogs: () => ipcRenderer.invoke('get-app-logs'),
+  showAppLogInFolder: () => ipcRenderer.invoke('show-app-log-in-folder'),
   checkYtDlpUpdate: () => ipcRenderer.invoke('check-yt-dlp-update'),
   updateYtDlp: () => ipcRenderer.invoke('update-yt-dlp'),
   getYtDlpVersion: () => ipcRenderer.invoke('get-yt-dlp-version'),

@@ -314,6 +314,20 @@ const googleVisionApiKeyInput = document.getElementById('google-vision-api-key')
 const googleTtsApiKeyInput = document.getElementById('google-tts-api-key');
 const ocrProviderGoogle = document.getElementById('ocr-provider-google');
 const ytDlpCookiesInput = document.getElementById('yt-dlp-cookies');
+const COOKIE_LIST_SEPARATOR = '\n\n# === BNTEAM COOKIE SEPARATOR ===\n\n';
+
+function formatCookiesForInput(cookies) {
+    return Array.isArray(cookies) ? cookies.join(COOKIE_LIST_SEPARATOR) : (cookies || '');
+}
+
+function parseCookiesFromInput(value) {
+    const cookies = value
+        .split(COOKIE_LIST_SEPARATOR)
+        .map(cookie => cookie.trim())
+        .filter(Boolean);
+
+    return cookies.length > 1 ? cookies : (cookies[0] || '');
+}
 const settingsStatus = document.getElementById('settings-status');
 
 // yt-dlp update notification elements
@@ -398,6 +412,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     window.openSettings = openSettings;
     window.closeSettings = closeSettings;
     window.saveSettings = saveSettings;
+    window.openLogs = openLogs;
 
     window.openVideoTextModal = openVideoTextModal;
     window.closeVideoTextModal = closeVideoTextModalFunc;
@@ -407,6 +422,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     await setupDownloadListeners();
     setupVideoTextListeners();
     setupTtsListeners();
+    setupLogsListeners();
 
     await loadSettings();
 
@@ -1831,6 +1847,24 @@ function isValidYouTubeUrl(url) {
 }
 
 // Thêm row kết quả vào bảng
+function renderTranscriptCellContent(videoData, displayIndex, resultIndex) {
+    if (videoData.subtitle) {
+        return `<div id="transcript-${displayIndex}">${formatSubtitleForDisplay(videoData.subtitle)}</div>`;
+    }
+
+    if (videoData.subtitleError) {
+        const errorMessage = escapeHtml(videoData.subtitleError);
+        return `
+            <div class="transcript-error-container">
+                <button type="button" class="btn-retry-transcript" onclick="retryTranscript(${resultIndex}, ${displayIndex})">🔄 Tải lại Transcript</button>
+                <span class="transcript-error-message" title="${errorMessage}">Không tải được: ${errorMessage}</span>
+            </div>
+        `;
+    }
+
+    return '<span class="empty-state">Không có transcript</span>';
+}
+
 function addResultRow(videoData, displayIndex, resultIndex) {
     const row = document.createElement('tr');
     row.id = `row-${displayIndex}`;
@@ -1856,15 +1890,11 @@ function addResultRow(videoData, displayIndex, resultIndex) {
         </td>
         <td class="title-cell">${escapeHtml(videoData.title)}</td>
     
-        <td class="transcript-cell">
-            ${videoData.subtitle ?
-            `<div id="transcript-${displayIndex}">${formatSubtitleForDisplay(videoData.subtitle)}</div>` :
-            '<span class="empty-state">Không có transcript</span>'}
-        </td>
+        <td class="transcript-cell">${renderTranscriptCellContent(videoData, displayIndex, resultIndex)}</td>
         <td>
             <div class="action-buttons">
                 ${videoData.url ? `<button class="btn-action btn-view" onclick="openVideo('${videoData.url}')">Mở video</button>` : ''}
-                ${videoData.subtitle ? `<button class="btn-action btn-copy" onclick="copyTranscript(${resultIndex})">Copy transcript</button>` : ''}
+                ${videoData.subtitle ? `<button class="btn-action btn-copy btn-copy-transcript" onclick="copyTranscript(${resultIndex})">Copy transcript</button>` : ''}
                 <button class="btn-action btn-copy-all" onclick="copyAllData(${resultIndex})">📋 Copy Data</button>
             </div>
         </td>
@@ -1872,6 +1902,61 @@ function addResultRow(videoData, displayIndex, resultIndex) {
 
     resultsBody.appendChild(row);
 }
+
+window.retryTranscript = async function (resultIndex, displayIndex) {
+    const videoData = results[resultIndex];
+    const row = document.getElementById(`row-${displayIndex}`);
+    const transcriptCell = row?.querySelector('.transcript-cell');
+
+    if (!videoData?.url || !transcriptCell) {
+        showToast('Không tìm thấy video để tải lại transcript.', 'error');
+        return;
+    }
+
+    transcriptCell.innerHTML = `
+        <div class="transcript-retry-loading" aria-live="polite">
+            <span class="transcript-retry-spinner"></span>
+            Đang tải lại transcript...
+        </div>
+    `;
+
+    try {
+        // Refetch metadata to get a fresh caption URL; backend will rotate
+        // cookies while downloading the transcript.
+        const result = await window.electronAPI.getVideoInfo(videoData.url);
+        if (!result?.success || !result.data?.subtitle) {
+            throw new Error(
+                result?.data?.subtitleError ||
+                result?.error ||
+                'YouTube không trả về transcript.'
+            );
+        }
+
+        videoData.subtitle = result.data.subtitle;
+        videoData.subtitlePath = result.data.subtitlePath || '';
+        delete videoData.subtitleError;
+        transcriptCell.innerHTML = renderTranscriptCellContent(videoData, displayIndex, resultIndex);
+
+        const actions = row.querySelector('.action-buttons');
+        if (actions && !actions.querySelector('.btn-copy-transcript')) {
+            const copyButton = document.createElement('button');
+            copyButton.type = 'button';
+            copyButton.className = 'btn-action btn-copy btn-copy-transcript';
+            copyButton.textContent = 'Copy transcript';
+            copyButton.addEventListener('click', () => window.copyTranscript(resultIndex));
+
+            const copyAllButton = actions.querySelector('.btn-copy-all');
+            actions.insertBefore(copyButton, copyAllButton || null);
+        }
+
+        showToast('Đã tải lại transcript thành công.', 'success');
+    } catch (error) {
+        videoData.subtitle = '';
+        videoData.subtitleError = error?.message || 'Không thể tải lại transcript.';
+        transcriptCell.innerHTML = renderTranscriptCellContent(videoData, displayIndex, resultIndex);
+        showToast('Tải lại transcript thất bại. Xem nguyên nhân trong ô Transcript.', 'error', 5000);
+    }
+};
 
 // Chuẩn hóa lỗi để hiển thị thân thiện hơn
 function formatFriendlyVideoError(rawError) {
@@ -2698,7 +2783,7 @@ async function loadSettings() {
         }
 
         // Load yt-dlp cookies
-        ytDlpCookiesInput.value = settings.ytDlpCookies || '';
+        ytDlpCookiesInput.value = formatCookiesForInput(settings.ytDlpCookies);
     } catch (error) {
         console.error('Error loading settings:', error);
     }
@@ -2717,7 +2802,7 @@ function closeSettings() {
 async function saveSettings() {
     const googleApiKeysText = googleVisionApiKeyInput.value.trim();
     const googleTtsApiKey = googleTtsApiKeyInput.value.trim();
-    const cookies = ytDlpCookiesInput.value.trim();
+    const cookies = parseCookiesFromInput(ytDlpCookiesInput.value);
     if (googleApiKeysText) {
         // Parse danh sách API keys (mỗi dòng một key)
         const apiKeys = googleApiKeysText
@@ -2769,6 +2854,66 @@ function showSettingsStatus(message, type) {
     settingsStatus.textContent = message;
     settingsStatus.className = `settings-status ${type}`;
     settingsStatus.style.display = 'block';
+}
+
+async function openLogs() {
+    const modal = document.getElementById('logs-modal');
+    if (!modal) return;
+
+    modal.style.display = 'flex';
+    await loadLogs();
+}
+
+function closeLogs() {
+    const modal = document.getElementById('logs-modal');
+    if (modal) modal.style.display = 'none';
+}
+
+async function loadLogs() {
+    const content = document.getElementById('logs-content');
+    const path = document.getElementById('logs-path');
+    if (!content || !path) return;
+
+    content.textContent = 'Đang tải logs...';
+    try {
+        const logs = await window.electronAPI.getAppLogs();
+        content.textContent = logs.content || 'Chưa có log nào.';
+        path.textContent = logs.path ? `File: ${logs.path}` : '';
+        content.scrollTop = content.scrollHeight;
+    } catch (error) {
+        content.textContent = `Không thể tải logs: ${error.message}`;
+        path.textContent = '';
+    }
+}
+
+function setupLogsListeners() {
+    const closeBtn = document.getElementById('close-logs');
+    const refreshBtn = document.getElementById('refresh-logs-btn');
+    const copyBtn = document.getElementById('copy-logs-btn');
+    const openFolderBtn = document.getElementById('open-logs-folder-btn');
+    const modal = document.getElementById('logs-modal');
+
+    if (closeBtn) closeBtn.addEventListener('click', closeLogs);
+    if (refreshBtn) refreshBtn.addEventListener('click', loadLogs);
+    if (copyBtn) copyBtn.addEventListener('click', async () => {
+        const content = document.getElementById('logs-content')?.textContent || '';
+        try {
+            await navigator.clipboard.writeText(content);
+            showToast('Đã copy logs vào clipboard.', 'success');
+        } catch (error) {
+            showToast(`Không thể copy logs: ${error.message}`, 'error');
+        }
+    });
+    if (openFolderBtn) openFolderBtn.addEventListener('click', async () => {
+        try {
+            await window.electronAPI.showAppLogInFolder();
+        } catch (error) {
+            showToast(`Không thể mở thư mục logs: ${error.message}`, 'error');
+        }
+    });
+    if (modal) modal.addEventListener('click', event => {
+        if (event.target === modal) closeLogs();
+    });
 }
 
 // Tab switching functionality
@@ -3469,6 +3614,10 @@ const selectFolderBtn = document.getElementById('select-folder-btn');
 const startDownloadBtn = document.getElementById('start-download-btn');
 const downloadProgressSection = document.getElementById('download-progress-section');
 const downloadBody = document.getElementById('download-body');
+const downloadOverallProgress = document.getElementById('download-overall-progress');
+const downloadOverallLabel = document.getElementById('download-overall-label');
+const downloadOverallPercent = document.getElementById('download-overall-percent');
+const downloadOverallFill = document.getElementById('download-overall-fill');
 
 // Download type and segment options
 const downloadTypeRadios = document.querySelectorAll('input[name="download-type"]');
@@ -3510,6 +3659,103 @@ let downloadTasks = [];
 let downloadQueue = [];
 let activeDownloads = 0;
 const MAX_CONCURRENT_DOWNLOADS = window.APP_CONFIG?.MAX_CONCURRENT_DOWNLOADS || 5; // Config trong config.js
+const MAX_CONCURRENT_TITLE_FETCHES = 5;
+
+function setDownloadButtonLoading(message) {
+    const btnText = startDownloadBtn.querySelector('.btn-text');
+    const btnLoader = startDownloadBtn.querySelector('.btn-loader');
+    btnText.style.display = 'none';
+    btnLoader.style.display = 'inline';
+    btnLoader.textContent = message;
+    startDownloadBtn.disabled = true;
+}
+
+function setDownloadOverallProgress(label, percent) {
+    const normalizedPercent = Math.max(0, Math.min(100, Number(percent) || 0));
+    downloadOverallProgress.style.display = 'block';
+    downloadOverallLabel.textContent = label;
+    downloadOverallPercent.textContent = `${Math.round(normalizedPercent)}%`;
+    downloadOverallFill.style.width = `${normalizedPercent}%`;
+    downloadOverallProgress.setAttribute('aria-valuenow', String(Math.round(normalizedPercent)));
+}
+
+function updateDownloadOverallProgressFromTasks() {
+    if (downloadTasks.length === 0) return;
+
+    const terminalStatuses = new Set(['completed', 'error', 'cookie-error']);
+    const finishedCount = downloadTasks.filter(task => terminalStatuses.has(task.status)).length;
+    const successfulCount = downloadTasks.filter(task => task.status === 'completed').length;
+    const failedCount = downloadTasks.filter(task => task.status === 'error' || task.status === 'cookie-error').length;
+    const totalProgress = downloadTasks.reduce((sum, task) => {
+        if (terminalStatuses.has(task.status)) return sum + 100;
+        // yt-dlp can report 100% for the video stream before downloading or
+        // merging audio. Reserve the final 1% until the process truly exits.
+        return sum + Math.max(0, Math.min(99, Number(task.progress) || 0));
+    }, 0);
+    const overallPercent = totalProgress / downloadTasks.length;
+
+    if (finishedCount === downloadTasks.length) {
+        setDownloadOverallProgress(
+            `Hoàn tất ${downloadTasks.length} video: ${successfulCount} thành công, ${failedCount} lỗi`,
+            100
+        );
+        return;
+    }
+
+    setDownloadOverallProgress(
+        `Đang tải video: ${finishedCount}/${downloadTasks.length} hoàn tất`,
+        overallPercent
+    );
+    setDownloadButtonLoading(`⏳ Đang tải ${finishedCount}/${downloadTasks.length} • ${Math.round(overallPercent)}%`);
+}
+
+function findDownloadTask(taskId) {
+    return downloadTasks.find(task => String(task.id) === String(taskId));
+}
+
+function notifyDownloadCookieError(task) {
+    if (task.cookieErrorNotified) return;
+    task.cookieErrorNotified = true;
+    showCookieErrorNotification();
+}
+
+function handleDownloadProgress(data) {
+    const task = findDownloadTask(data?.taskId);
+    if (!task) return;
+
+    if (data.status === 'fetching') {
+        task.status = 'fetching';
+        task.progress = 0;
+        task.error = null;
+        task.retryMessage = null;
+    } else if (data.status === 'downloading') {
+        task.status = 'downloading';
+        task.progress = Number(data.progress) || 0;
+        task.error = null;
+        task.retryMessage = null;
+    } else if (data.status === 'retrying-cookie') {
+        task.status = 'retrying-cookie';
+        task.progress = 0;
+        task.error = null;
+        task.retryMessage = data.message || 'Đang đổi cookie và thử tải lại...';
+    } else if (data.status === 'cookie-error') {
+        task.status = 'cookie-error';
+        task.progress = 0;
+        task.error = data.error || 'Vui lòng cập nhật cookies trong Settings';
+        task.retryMessage = null;
+        notifyDownloadCookieError(task);
+    } else if (data.status === 'error') {
+        task.status = 'error';
+        task.progress = 0;
+        task.error = data.error || 'Không xác định được nguyên nhân tải lỗi.';
+        task.retryMessage = null;
+    }
+
+    updateDownloadRow(task);
+    updateDownloadOverallProgressFromTasks();
+}
+
+window.electronAPI.onDownloadProgress(handleDownloadProgress);
 
 // Select folder button
 selectFolderBtn.addEventListener('click', async () => {
@@ -3728,6 +3974,7 @@ startDownloadBtn.addEventListener('click', async () => {
     const urls = downloadUrlsTextarea.value.trim();
     const folder = downloadFolderInput.value.trim();
     const namingPattern = namingPatternInput.value.trim();
+    const quality = downloadQualitySelect.value;
     const downloadType = document.querySelector('input[name="download-type"]:checked').value;
     const audioOnly = !!(downloadAudioOnlyCheckbox && downloadAudioOnlyCheckbox.checked);
     let startTime = startTimeInput.value.trim();
@@ -3813,72 +4060,72 @@ startDownloadBtn.addEventListener('click', async () => {
 
     // If no naming pattern, fetch video titles from YouTube
     if (!namingPattern) {
+        const titleWorkerCount = Math.min(MAX_CONCURRENT_TITLE_FETCHES, urlList.length);
         // Show progress
+        downloadTasks = [];
         downloadProgressSection.style.display = 'block';
         renderDownloadTable();
-        startDownloadBtn.disabled = true;
-        const btnText = startDownloadBtn.querySelector('.btn-text');
-        const btnLoader = startDownloadBtn.querySelector('.btn-loader');
-        btnText.style.display = 'none';
-        btnLoader.style.display = 'inline';
+        setDownloadOverallProgress(`Đang lấy tên video (${titleWorkerCount} luồng): 0/${urlList.length}`, 0);
+        setDownloadButtonLoading(`⏳ Đang lấy tên video 0/${urlList.length} • ${titleWorkerCount} luồng`);
 
-        // Fetch video info for all URLs
-        downloadTasks = [];
-        for (let i = 0; i < urlList.length; i++) {
-            const url = urlList[i];
-            try {
-                const result = await window.electronAPI.getVideoInfo(url);
-                if (result.success && result.data && result.data.title) {
-                    const videoTitle = sanitizeFileName(result.data.title);
-                    downloadTasks.push({
-                        id: i,
-                        url,
-                        fileName: videoTitle,
-                        status: 'waiting',
-                        progress: 0,
-                        error: null,
-                        audioOnly,
-                        downloadType,
-                        startTime: downloadType === 'segment' ? startTime : null,
-                        endTime: downloadType === 'segment' ? endTime : null
-                    });
-                } else {
-                    // Fallback to video ID if title not available
-                    const videoId = url.match(/(?:v=|\/)([a-zA-Z0-9_-]{11})/)?.[1] || `video_${i + 1}`;
-                    downloadTasks.push({
-                        id: i,
-                        url,
-                        fileName: videoId,
-                        status: 'waiting',
-                        progress: 0,
-                        error: null,
-                        audioOnly,
-                        downloadType,
-                        startTime: downloadType === 'segment' ? startTime : null,
-                        endTime: downloadType === 'segment' ? endTime : null
-                    });
+        // Fetch tối đa 5 tiêu đề đồng thời nhưng vẫn lưu kết quả đúng thứ tự URL.
+        downloadTasks = new Array(urlList.length);
+        let nextTitleIndex = 0;
+        let completedTitleCount = 0;
+
+        function createDownloadTask(index, url, fileName) {
+            return {
+                id: index,
+                url,
+                fileName,
+                quality,
+                folder,
+                status: 'waiting',
+                progress: 0,
+                error: null,
+                audioOnly,
+                downloadType,
+                startTime: downloadType === 'segment' ? startTime : null,
+                endTime: downloadType === 'segment' ? endTime : null
+            };
+        }
+
+        async function fetchNextVideoTitle() {
+            while (nextTitleIndex < urlList.length) {
+                const index = nextTitleIndex++;
+                const url = urlList[index];
+                const fallbackVideoId = url.match(/(?:v=|\/)([a-zA-Z0-9_-]{11})/)?.[1] || `video_${index + 1}`;
+                let fileName = fallbackVideoId;
+
+                try {
+                    const result = await window.electronAPI.getVideoInfo(url, { includeTranscript: false });
+                    if (result.success && result.data && result.data.title) {
+                        fileName = sanitizeFileName(result.data.title) || fallbackVideoId;
+                    }
+                } catch (error) {
+                    console.error(`Error fetching video info for ${url}:`, error);
+                } finally {
+                    downloadTasks[index] = createDownloadTask(index, url, fileName);
+                    completedTitleCount++;
+                    const metadataProgress = (completedTitleCount / urlList.length) * 100;
+                    setDownloadOverallProgress(
+                        `Đang lấy tên video (${titleWorkerCount} luồng): ${completedTitleCount}/${urlList.length}`,
+                        metadataProgress
+                    );
+                    setDownloadButtonLoading(`⏳ Đang lấy tên video ${completedTitleCount}/${urlList.length} • ${titleWorkerCount} luồng`);
                 }
-            } catch (error) {
-                console.error(`Error fetching video info for ${url}:`, error);
-                // Fallback to video ID
-                const videoId = url.match(/(?:v=|\/)([a-zA-Z0-9_-]{11})/)?.[1] || `video_${i + 1}`;
-                downloadTasks.push({
-                    id: i,
-                    url,
-                    fileName: videoId,
-                    status: 'waiting',
-                    progress: 0,
-                    error: null,
-                    audioOnly,
-                    downloadType,
-                    startTime: downloadType === 'segment' ? startTime : null,
-                    endTime: downloadType === 'segment' ? endTime : null
-                });
             }
         }
 
+        const titleWorkers = Array.from(
+            { length: titleWorkerCount },
+            () => fetchNextVideoTitle()
+        );
+        await Promise.all(titleWorkers);
+
         // Render table with fetched titles
         renderDownloadTable();
+        updateDownloadOverallProgressFromTasks();
         
         // Start downloads
         downloadQueue = [...downloadTasks];
@@ -3908,9 +4155,12 @@ startDownloadBtn.addEventListener('click', async () => {
                 id: index,
                 url,
                 fileName,
+                quality,
+                folder,
                 status: 'waiting',
                 progress: 0,
                 error: null,
+                audioOnly,
                 downloadType,
                 startTime: downloadType === 'segment' ? startTime : null,
                 endTime: downloadType === 'segment' ? endTime : null
@@ -3949,6 +4199,8 @@ startDownloadBtn.addEventListener('click', async () => {
             id: index,
             url,
             fileName,
+            quality,
+            folder,
             status: 'waiting',
             progress: 0,
             error: null,
@@ -3973,6 +4225,8 @@ startDownloadBtn.addEventListener('click', async () => {
                     id: index,
                     url,
                     fileName,
+                    quality,
+                    folder,
                     status: 'waiting',
                     progress: 0,
                     error: null,
@@ -3990,11 +4244,8 @@ startDownloadBtn.addEventListener('click', async () => {
     renderDownloadTable();
 
     // Disable button
-    startDownloadBtn.disabled = true;
-    const btnText = startDownloadBtn.querySelector('.btn-text');
-    const btnLoader = startDownloadBtn.querySelector('.btn-loader');
-    btnText.style.display = 'none';
-    btnLoader.style.display = 'inline';
+    setDownloadOverallProgress(`Đang tải video: 0/${downloadTasks.length} hoàn tất`, 0);
+    setDownloadButtonLoading(`⏳ Đang tải 0/${downloadTasks.length} • 0%`);
 
     // Start downloads
     downloadQueue = [...downloadTasks];
@@ -4015,47 +4266,23 @@ function processNextDownload() {
         activeDownloads++;
         task.status = 'fetching'; // Đang lấy thông tin
         updateDownloadRow(task);
+        updateDownloadOverallProgressFromTasks();
 
         // Start download (don't await, let it run in parallel)
         downloadVideo(task).catch(error => {
             console.error(`Error downloading task ${task.id}:`, error);
             task.status = 'error';
-            task.error = error.message;
+            task.error = error.message || 'Lỗi không xác định';
             updateDownloadRow(task);
-            activeDownloads = Math.max(0, activeDownloads - 1);
-            processNextDownload();
+            updateDownloadOverallProgressFromTasks();
         });
     }
 }
 
 async function downloadVideo(task) {
     try {
-        const quality = downloadQualitySelect.value;
-        const folder = downloadFolderInput.value;
-
-        // Listen for progress updates (set up before starting download)
-        // Use a unique handler for this task
-        const progressHandler = (data) => {
-            if (String(data.taskId) === String(task.id)) {
-                if (data.status === 'fetching') {
-                    task.status = 'fetching';
-                    task.progress = 0;
-                } else if (data.status === 'downloading') {
-                    task.status = 'downloading';
-                    task.progress = data.progress || 0;
-                } else if (data.status === 'cookie-error') {
-                    task.status = 'cookie-error';
-                    task.progress = 0;
-                    task.error = data.error || 'Vui lòng cập nhật cookies trong Settings';
-                    updateDownloadRow(task);
-                    // Hiển thị thông báo và mở Settings
-                    showCookieErrorNotification();
-                }
-                updateDownloadRow(task);
-            }
-        };
-
-        window.electronAPI.onDownloadProgress(progressHandler);
+        const quality = task.quality ?? downloadQualitySelect.value;
+        const folder = task.folder ?? downloadFolderInput.value;
 
         // Start download with taskId
         const downloadPromise = window.electronAPI.downloadVideo({
@@ -4073,62 +4300,41 @@ async function downloadVideo(task) {
         // Wait for download to complete
         const result = await downloadPromise;
 
-        if (result.success) {
-            const wasCompleted = task.status === 'completed';
+        if (result?.success) {
             task.status = 'completed';
             task.progress = 100;
             task.filePath = result.filePath;
-
-            // Show Windows notification when download is completed
-            if (!wasCompleted) {
-                const fileName = task.fileName || 'Video';
-                const urlName = task.url ? (task.url.split('/').pop() || task.url) : 'Video';
-
-
-                // Check if Notification API is available
-                if ('Notification' in window) {
-                    // Request permission if needed
-                    if (Notification.permission === 'default') {
-                        Notification.requestPermission().then(permission => {
-                            if (permission === 'granted') {
-                                showDownloadCompletedNotification(fileName, urlName);
-                            }
-                        }).catch(err => {
-                            console.error('Error requesting notification permission:', err);
-                        });
-                    } else if (Notification.permission === 'granted') {
-                        showDownloadCompletedNotification(fileName, urlName);
-                    }
-                }
-            }
         } else {
             // Kiểm tra nếu lỗi liên quan đến cookie
-            if (result.error && result.error.includes('COOKIE_ERROR')) {
+            if (result?.error && result.error.includes('COOKIE_ERROR')) {
                 task.status = 'cookie-error';
-                task.error = 'Vui lòng cập nhật cookies trong Settings';
-                showCookieErrorNotification();
+                task.error = result.error.replace(/^COOKIE_ERROR:\s*/, '');
+                notifyDownloadCookieError(task);
             } else {
                 task.status = 'error';
-                task.error = result.error || 'Lỗi không xác định';
+                task.error = result?.error || 'Tiến trình tải không trả về kết quả.';
             }
         }
 
         updateDownloadRow(task);
+        updateDownloadOverallProgressFromTasks();
     } catch (error) {
         // Kiểm tra nếu lỗi liên quan đến cookie
         if (error.message && error.message.includes('COOKIE_ERROR')) {
             task.status = 'cookie-error';
-            task.error = 'Vui lòng cập nhật cookies trong Settings';
-            showCookieErrorNotification();
+            task.error = error.message.replace(/^COOKIE_ERROR:\s*/, '');
+            notifyDownloadCookieError(task);
         } else {
             task.status = 'error';
-            task.error = error.message;
+            task.error = error.message || 'Lỗi không xác định';
         }
         updateDownloadRow(task);
+        updateDownloadOverallProgressFromTasks();
     } finally {
-        activeDownloads--;
+        activeDownloads = Math.max(0, activeDownloads - 1);
         // Process next download
         processNextDownload();
+        updateDownloadOverallProgressFromTasks();
 
         // Check if all downloads are done
         if (downloadQueue.length === 0 && activeDownloads === 0) {
@@ -4137,9 +4343,81 @@ async function downloadVideo(task) {
             btnText.style.display = 'inline';
             btnLoader.style.display = 'none';
             startDownloadBtn.disabled = false;
-            showToast('Đã hoàn thành tất cả video!', 'success');
+            const successfulCount = downloadTasks.filter(task => task.status === 'completed').length;
+            const failedCount = downloadTasks.filter(task => task.status === 'error' || task.status === 'cookie-error').length;
+            const summaryMessage = `Đã tải xong ${downloadTasks.length} video: ${successfulCount} thành công, ${failedCount} lỗi.`;
+
+            showDownloadBatchCompletedNotification(successfulCount, failedCount, downloadTasks.length);
+            if (failedCount > 0) {
+                showToast(`${summaryMessage} Xem nguyên nhân và bấm “Tải lại” ở từng dòng.`, 'error', 6000);
+            } else {
+                showToast(summaryMessage, 'success', 5000);
+            }
         }
     }
+}
+
+function getDownloadStatusMeta(task) {
+    if (task.status === 'waiting') return { className: 'waiting', text: 'Đang chờ' };
+    if (task.status === 'fetching') return { className: 'fetching', text: 'Đang lấy thông tin' };
+    if (task.status === 'downloading') return { className: 'downloading', text: 'Đang tải' };
+    if (task.status === 'retrying-cookie') return { className: 'retrying-cookie', text: 'Đang đổi cookie' };
+    if (task.status === 'completed') return { className: 'completed', text: 'Hoàn thành' };
+    if (task.status === 'cookie-error') return { className: 'cookie-error', text: 'Cần cập nhật cookies' };
+    return { className: 'error', text: 'Lỗi' };
+}
+
+function renderDownloadStatus(task) {
+    const status = getDownloadStatusMeta(task);
+    const progress = Math.max(0, Math.min(100, Number(task.progress) || 0));
+    const failed = task.status === 'error' || task.status === 'cookie-error';
+    const errorMessage = failed
+        ? escapeHtml(task.error || 'Không xác định được nguyên nhân tải lỗi.')
+        : '';
+    const retryMessage = task.status === 'retrying-cookie'
+        ? escapeHtml(task.retryMessage || 'Đang đổi cookie và thử tải lại...')
+        : '';
+
+    return `
+        <div class="download-status-line">
+            <span class="download-status ${status.className}">${status.text}</span>
+            ${failed ? `<button type="button" class="retry-download-btn" data-task-id="${escapeHtml(String(task.id))}">↻ Tải lại</button>` : ''}
+        </div>
+        ${retryMessage ? `<div class="download-cookie-retry-message">${retryMessage}</div>` : ''}
+        ${failed ? `<div class="download-error-message" title="${errorMessage}">${errorMessage}</div>` : ''}
+        <div class="download-progress-wrapper">
+            <div class="download-progress-bar">
+                <div class="download-progress-fill" style="width: ${progress}%">${Math.round(progress)}%</div>
+            </div>
+        </div>
+    `;
+}
+
+function bindRetryDownloadButton(row) {
+    const retryButton = row.querySelector('.retry-download-btn');
+    if (!retryButton) return;
+
+    retryButton.addEventListener('click', () => {
+        retryDownloadTask(retryButton.dataset.taskId);
+    });
+}
+
+function retryDownloadTask(taskId) {
+    const task = findDownloadTask(taskId);
+    if (!task || (task.status !== 'error' && task.status !== 'cookie-error')) return;
+
+    downloadQueue = downloadQueue.filter(queuedTask => String(queuedTask.id) !== String(task.id));
+    task.status = 'waiting';
+    task.progress = 0;
+    task.error = null;
+    task.retryMessage = null;
+    task.filePath = null;
+    task.cookieErrorNotified = false;
+    downloadQueue.push(task);
+    updateDownloadRow(task);
+    updateDownloadOverallProgressFromTasks();
+    setDownloadButtonLoading('⏳ Đang tải lại video...');
+    processNextDownload();
 }
 
 function renderDownloadTable() {
@@ -4154,31 +4432,14 @@ function createDownloadRow(task) {
     const row = document.createElement('tr');
     row.id = `download-row-${task.id}`;
 
-    const statusClass = task.status === 'waiting' ? 'waiting' :
-        task.status === 'fetching' ? 'fetching' :
-            task.status === 'downloading' ? 'downloading' :
-                task.status === 'completed' ? 'completed' :
-                    task.status === 'cookie-error' ? 'cookie-error' : 'error';
-
-    const statusText = task.status === 'waiting' ? 'Đang chờ' :
-        task.status === 'fetching' ? 'Đang lấy thông tin' :
-            task.status === 'downloading' ? 'Đang tải' :
-                task.status === 'completed' ? 'Hoàn thành' :
-                    task.status === 'cookie-error' ? 'Cần cập nhật cookies' : 'Lỗi';
-
     row.innerHTML = `
         <td>${task.id + 1}</td>
         <td style="max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(task.fileName || '')}">${escapeHtml(task.fileName || '-')}</td>
         <td style="max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${escapeHtml(task.url)}">${escapeHtml(task.url)}</td>
-        <td>
-            <div><span class="download-status ${statusClass}">${statusText}</span></div>
-            <div style="margin-top: 8px; width: 200px;">
-            <div class="download-progress-bar">
-                <div class="download-progress-fill" style="width: ${task.progress}%">${task.progress}%</div>
-                </div>
-            </div>
-        </td>
+        <td class="download-state-cell">${renderDownloadStatus(task)}</td>
     `;
+
+    bindRetryDownloadButton(row);
 
     return row;
 }
@@ -4971,26 +5232,37 @@ window.copyVideoSubtitleText = async function (id, srtPath) {
     }
 };
 
-// Show Windows notification when download is completed
-function showDownloadCompletedNotification(fileName, urlName) {
-    try {
-        const notification = new Notification('Video tải xong', {
-            body: `File: ${fileName}\nURL: ${urlName}`,
-            icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTIiIGZpbGw9IiM0Q0FGNTAiLz4KPHBhdGggZD0iTTMyIDEwVjU0TTEwIDMySDU0IiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K',
-            tag: `download-completed-${Date.now()}` // Unique tag to prevent duplicate notifications
-        });
+// Show one Windows notification after the whole download queue has finished.
+function showDownloadBatchCompletedNotification(successfulCount, failedCount, totalCount) {
+    if (!('Notification' in window)) return;
 
-        notification.onclick = () => {
-            window.focus(); // Focus the window when notification is clicked
-            notification.close();
-        };
+    const showNotification = () => {
+        try {
+            const notification = new Notification('Tải danh sách video hoàn tất', {
+                body: `Tổng số: ${totalCount}\nThành công: ${successfulCount}\nLỗi: ${failedCount}`,
+                icon: 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjQiIGhlaWdodD0iNjQiIHZpZXdCb3g9IjAgMCA2NCA2NCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KPHJlY3Qgd2lkdGg9IjY0IiBoZWlnaHQ9IjY0IiByeD0iMTIiIGZpbGw9IiM0Q0FGNTAiLz4KPHBhdGggZD0iTTMyIDEwVjU0TTEwIDMySDU0IiBzdHJva2U9IndoaXRlIiBzdHJva2Utd2lkdGg9IjQiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPgo8L3N2Zz4K',
+                tag: 'download-batch-completed'
+            });
 
-        // Auto close after 5 seconds
-        setTimeout(() => {
-            notification.close();
-        }, 5000);
-    } catch (error) {
-        console.error('Error showing notification:', error);
+            notification.onclick = () => {
+                window.focus();
+                notification.close();
+            };
+
+            setTimeout(() => notification.close(), 8000);
+        } catch (error) {
+            console.error('Error showing download summary notification:', error);
+        }
+    };
+
+    if (Notification.permission === 'granted') {
+        showNotification();
+    } else if (Notification.permission === 'default') {
+        Notification.requestPermission()
+            .then(permission => {
+                if (permission === 'granted') showNotification();
+            })
+            .catch(error => console.error('Error requesting notification permission:', error));
     }
 }
 
@@ -5404,29 +5676,10 @@ if (typeof path === 'undefined') {
 function updateDownloadRow(task) {
     const row = document.getElementById(`download-row-${task.id}`);
     if (row) {
-        const statusClass = task.status === 'waiting' ? 'waiting' :
-            task.status === 'fetching' ? 'fetching' :
-                task.status === 'downloading' ? 'downloading' :
-                    task.status === 'completed' ? 'completed' :
-                        task.status === 'cookie-error' ? 'cookie-error' : 'error';
-
-        const statusText = task.status === 'waiting' ? 'Đang chờ' :
-            task.status === 'fetching' ? 'Đang lấy thông tin' :
-                task.status === 'downloading' ? 'Đang tải' :
-                    task.status === 'completed' ? 'Hoàn thành' :
-                        task.status === 'cookie-error' ? 'Cần cập nhật cookies' : 'Lỗi';
-
         const cells = row.querySelectorAll('td');
         if (cells.length >= 4) {
-            cells[2].innerHTML = `<span class="download-status ${statusClass}">${statusText}</span>`;
-            cells[3].innerHTML = `
-                <div class="download-progress-bar">
-                    <div class="download-progress-fill" style="width: ${task.progress}%">${task.progress}%</div>
-                </div>
-            `;
-            if (cells.length >= 5) {
-                cells[4].textContent = task.fileName || '-';
-            }
+            cells[3].innerHTML = renderDownloadStatus(task);
+            bindRetryDownloadButton(row);
         }
     }
 }

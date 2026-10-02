@@ -10,11 +10,15 @@ const ytDlpUtils = require('./ytDlpUtils');
 // Tìm yt-dlp path (import từ ytDlpUtils)
 let findYtDlpPath;
 let addCookiesToArgs;
+let getCookieHeaderForUrl;
+let getCookiesFilePaths;
 
 // Set dependencies (called from main.js)
 function setDependencies(deps) {
   findYtDlpPath = deps.findYtDlpPath;
   addCookiesToArgs = deps.addCookiesToArgs;
+  getCookieHeaderForUrl = deps.getCookieHeaderForUrl;
+  getCookiesFilePaths = deps.getCookiesFilePaths;
 }
 
 function getExtensionFromUrl(url) {
@@ -86,73 +90,127 @@ function selectCaptionFormat(formats) {
   return formats.find(format => format && format.ext === 'vtt' && format.url) || null;
 }
 
-function pickCaptionLanguage(captions, videoInfo) {
-  const languages = Object.keys(captions || {}).filter(isUsableCaptionLanguage);
-  if (languages.length === 0) {
-    return null;
-  }
-
-  const candidates = [
-    videoInfo?.language,
-    videoInfo?.original_language,
-    videoInfo?.default_audio_language,
-    videoInfo?.requested_subtitles && Object.keys(videoInfo.requested_subtitles)[0],
-    'vi',
-    'en',
-    'ja',
-    'ko',
-    'zh-Hans',
-    'zh-Hant'
-  ].filter(Boolean);
-
-  for (const candidate of candidates) {
-    const exact = languages.find(language => language.toLowerCase() === String(candidate).toLowerCase());
-    if (exact) {
-      return exact;
-    }
-
-    const prefix = String(candidate).split('-')[0].toLowerCase();
-    const prefixed = languages.find(language => language.toLowerCase().split('-')[0] === prefix);
-    if (prefixed) {
-      return prefixed;
-    }
-  }
-
-  return languages[0];
+function uniqueLanguages(languages) {
+  return [...new Set(languages.filter(Boolean).map(language => String(language)))];
 }
 
-function findCaptionTrackFromVideoInfo(videoInfo) {
-  const sources = [
-    videoInfo?.subtitles,
-    videoInfo?.automatic_captions
-  ];
+// Default audio may be a dubbed track selected for the current session.
+function getOriginalAudioLanguages(videoInfo) {
+  const audioTrackLanguages = Array.isArray(videoInfo?.audio_tracks)
+    ? videoInfo.audio_tracks
+      .filter(track => track?.is_original === true || track?.audio_is_original === true)
+      .map(track => track?.language || track?.language_code || track?.id)
+    : [];
 
-  for (const captions of sources) {
-    const language = pickCaptionLanguage(captions, videoInfo);
-    if (!language) {
-      continue;
-    }
+  const detected = uniqueLanguages([
+    videoInfo?.original_language,
+    videoInfo?.language,
+    ...audioTrackLanguages
+  ]);
+  return detected.length ? detected : uniqueLanguages([videoInfo?.default_audio_language]);
+}
 
-    const format = selectCaptionFormat(captions[language]);
-    if (format) {
-      return { language, format };
-    }
+function findMatchingCaptionLanguage(languages, originalLanguage) {
+  const normalizedOriginal = String(originalLanguage).toLowerCase();
+  const baseOriginal = normalizedOriginal.split('-')[0];
+
+  // YouTube may expose the source track as e.g. `ja-orig`.
+  const explicitOriginal = languages.find(language => {
+    const normalized = language.toLowerCase();
+    return normalized === `${normalizedOriginal}-orig` ||
+      normalized === `${baseOriginal}-orig` ||
+      normalized === `${normalizedOriginal}-org` ||
+      normalized === `${baseOriginal}-org`;
+  });
+  if (explicitOriginal) return explicitOriginal;
+
+  const exact = languages.find(language => language.toLowerCase() === normalizedOriginal);
+  if (exact) return exact;
+
+  // en and en-US, for example, are both captions for English audio.
+  return languages.find(language => {
+    const normalized = language.toLowerCase();
+    return normalized.split('-')[0] === baseOriginal &&
+      !normalized.endsWith('-orig') && !normalized.endsWith('-org');
+  }) || null;
+}
+
+function pickCaptionLanguage(captions, videoInfo) {
+  const languages = Object.keys(captions || {}).filter(isUsableCaptionLanguage);
+
+  for (const originalLanguage of getOriginalAudioLanguages(videoInfo)) {
+    const matchingLanguage = findMatchingCaptionLanguage(languages, originalLanguage);
+    if (matchingLanguage) return matchingLanguage;
   }
 
+  // Dubbed captions can also carry the orig suffix: match audio first.
+  const explicitlyOriginal = languages.find(language => /-(orig|org)$/i.test(language));
+  if (explicitlyOriginal) return explicitlyOriginal;
+
+  // User-requested fallback when no source-language track is available.
+  const japanese = findMatchingCaptionLanguage(languages, 'ja');
+  if (japanese) return japanese;
+
+  // Never use the first returned subtitle: it can be a YouTube translation
+  // selected differently by account, IP address, or locale.
   return null;
 }
 
-function downloadCaptionUrlToFile(captionUrl, filePath) {
+function findCaptionTrackFromVideoInfo(videoInfo) {
+  return findCaptionTrackCandidates(videoInfo)[0] || null;
+}
+
+function findCaptionTrackCandidates(videoInfo) {
+  return require('./captionSelection').getCaptionCandidates(videoInfo || {});
+}
+
+function validateSubtitleFile(filePath) {
+  if (!fs.existsSync(filePath)) {
+    throw new Error('Không tìm thấy file transcript đã tải');
+  }
+
+  const content = fs.readFileSync(filePath, 'utf8').trim();
+  if (!content) {
+    throw new Error('File transcript tải về đang rỗng');
+  }
+
+  // A caption endpoint can occasionally return an HLS manifest instead of
+  // the requested VTT content. It is not copyable transcript text.
+  if (/^#EXTM3U\b/i.test(content)) {
+    throw new Error('YouTube trả về playlist HLS thay vì nội dung transcript');
+  }
+
+  return content;
+}
+
+function getRedirectHeaders(headers, sourceUrl, redirectUrl) {
+  try {
+    if (new URL(sourceUrl).origin === new URL(redirectUrl).origin) {
+      return headers;
+    }
+  } catch (_) {}
+
+  const safeHeaders = { ...headers };
+  delete safeHeaders.Cookie;
+  delete safeHeaders.cookie;
+  delete safeHeaders.Authorization;
+  delete safeHeaders.authorization;
+  return safeHeaders;
+}
+
+function downloadCaptionUrlToFile(captionUrl, filePath, requestHeaders = {}) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(filePath);
     const httpModule = captionUrl.startsWith('https') ? https : http;
 
-    const request = httpModule.get(captionUrl, (response) => {
+    const request = httpModule.get(captionUrl, { headers: requestHeaders }, (response) => {
       if (response.statusCode === 301 || response.statusCode === 302) {
         file.close(() => {
           try { fs.unlinkSync(filePath); } catch (_) {}
           if (response.headers.location) {
-            downloadCaptionUrlToFile(response.headers.location, filePath).then(resolve).catch(reject);
+            const redirectUrl = new URL(response.headers.location, captionUrl).toString();
+            const redirectHeaders = getRedirectHeaders(requestHeaders, captionUrl, redirectUrl);
+            downloadCaptionUrlToFile(redirectUrl, filePath, redirectHeaders).then(resolve).catch(reject);
           } else {
             reject(new Error('Caption redirect missing location'));
           }
@@ -170,7 +228,15 @@ function downloadCaptionUrlToFile(captionUrl, filePath) {
 
       response.pipe(file);
       file.on('finish', () => {
-        file.close(() => resolve(filePath));
+        file.close(() => {
+          try {
+            validateSubtitleFile(filePath);
+            resolve(filePath);
+          } catch (error) {
+            try { fs.unlinkSync(filePath); } catch (_) {}
+            reject(error);
+          }
+        });
       });
     });
 
@@ -268,100 +334,129 @@ async function detectOriginalLanguageFromListSubs(videoUrl) {
   }
 }
 
-// Hàm tải subtitle
-async function downloadSubtitle(videoUrl, videoId, videoInfo) {
-  return new Promise(async (resolve, reject) => {
-
-    // Sử dụng bin/subtitles để lưu file (resources/bin không bị pack vào asar)
+function downloadSubtitleWithYtDlp(videoUrl, videoId, targetLanguages, cookieFilePath) {
+  return new Promise((resolve, reject) => {
     const subtitlesDir = pathUtils.getSubtitlesDir();
-
-    const captionTrack = findCaptionTrackFromVideoInfo(videoInfo);
-    if (captionTrack) {
-      try {
-        const ext = captionTrack.format.ext || 'vtt';
-        const directSubtitlePath = path.join(subtitlesDir, `${videoId}.${captionTrack.language}.${ext}`);
-        const downloadedPath = await downloadCaptionUrlToFile(captionTrack.format.url, directSubtitlePath);
-        resolve(downloadedPath);
-        return;
-      } catch (error) {
-        console.warn('Could not download transcript directly, falling back to yt-dlp:', error.message);
-      }
-    }
-
     const outputPath = path.join(subtitlesDir, `${videoId}.%(ext)s`);
     const ytDlpPath = findYtDlpPath();
-
-    // Sử dụng --list-subs để xác định ngôn ngữ gốc
-    let targetLanguage = 'auto';
-
-    try {
-      const languageInfo = await detectOriginalLanguageFromListSubs(videoUrl);
-      if (languageInfo.language && languageInfo.language !== 'auto') {
-        targetLanguage = languageInfo.language;
-      } else {
-        const fallbackTrack = findCaptionTrackFromVideoInfo(videoInfo);
-        targetLanguage = fallbackTrack?.language || 'en';
-      }
-    } catch (error) {
-      console.warn('Không thể detect ngôn ngữ, sử dụng auto:', error.message);
-    }
-
-    if (!targetLanguage || targetLanguage === 'auto') {
-      const fallbackTrack = findCaptionTrackFromVideoInfo(videoInfo);
-      targetLanguage = fallbackTrack?.language || 'en';
-    }
-
+    const languages = [...new Set(targetLanguages.filter(Boolean))];
+    const languageSelector = languages.join(',');
     const args = [
       videoUrl,
       '--write-subs',
       '--write-auto-subs',
-      '--sub-lang', targetLanguage,
+      '--sub-lang', languageSelector,
       '--sub-format', 'vtt',
+      '--force-overwrites',
       '-o', outputPath,
       '--skip-download',
       '--no-playlist'
     ];
 
-    addCookiesToArgs(args);
+    addCookiesToArgs(args, cookieFilePath);
     ytDlpUtils.addEjsRuntimeArgs(args);
 
-
     execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024 * 10, windowsHide: true }, (error, stdout, stderr) => {
-      if (error) {
-        // Nếu lỗi với ngôn ngữ cụ thể, thử fallback
-        if (targetLanguage !== 'auto' && targetLanguage !== 'en') {
-          // Thử lại với auto hoặc en
-          return downloadSubtitleFallback(videoUrl, videoId, resolve, reject);
-        }
-        reject(new Error(`yt-dlp failed: ${stderr || error.message}`));
-        return;
-      }
-
-      // Tìm file subtitle đã tải
-      const possiblePaths = [
-        path.join(subtitlesDir, `${videoId}.${targetLanguage}.vtt`),
-        path.join(subtitlesDir, `${videoId}.vtt`),
-        path.join(subtitlesDir, `${videoId}.en.vtt`),
-        path.join(subtitlesDir, `${videoId}.auto.vtt`)
-      ];
-
-      for (const possiblePath of possiblePaths) {
-        if (fs.existsSync(possiblePath)) {
-          resolve(possiblePath);
+      // yt-dlp can exit non-zero when one requested language fails even though
+      // it successfully wrote the other one. Always inspect every output first.
+      for (const language of languages) {
+        const subtitlePath = path.join(subtitlesDir, `${videoId}.${language}.vtt`);
+        try {
+          validateSubtitleFile(subtitlePath);
+          resolve(subtitlePath);
           return;
-        }
+        } catch (_) {}
       }
 
-      // Nếu không tìm thấy, thử tìm bất kỳ file nào trong thư mục
-      const files = fs.readdirSync(subtitlesDir);
-      const subtitleFile = files.find(f => f.startsWith(videoId) && f.endsWith('.vtt'));
-      if (subtitleFile) {
-        resolve(path.join(subtitlesDir, subtitleFile));
+      if (error) {
+        reject(new Error(`yt-dlp (${languageSelector}) failed: ${stderr || error.message}`));
       } else {
-        reject(new Error('Subtitle file not found'));
+        reject(new Error(`yt-dlp không tạo file transcript hợp lệ (${languageSelector})`));
       }
     });
   });
+}
+
+// Hàm tải subtitle. Một cookie được giữ nguyên từ lúc lấy metadata đến mọi
+// lần thử caption, tránh đổi phiên giữa chừng khi nhiều video chạy song song.
+async function downloadSubtitle(videoUrl, videoId, videoInfo, cookieFilePath = null) {
+  const subtitlesDir = pathUtils.getSubtitlesDir();
+  const originalLanguages = getOriginalAudioLanguages(videoInfo);
+  const captionTracks = findCaptionTrackCandidates(videoInfo);
+  if (!captionTracks.length) {
+    throw new Error('Không tìm thấy phụ đề nguồn chưa dịch của video');
+  }
+  const fallbackLanguages = [...new Set(captionTracks.map(track => track.language))];
+
+  const directErrors = [];
+  for (const captionTrack of captionTracks) {
+    if (!captionTrack.format) continue;
+    const ext = captionTrack.format.ext || 'vtt';
+    const directSubtitlePath = path.join(subtitlesDir, `${videoId}.${captionTrack.language}.${ext}`);
+    const requestHeaders = { ...(videoInfo?.http_headers || {}) };
+    const cookieHeader = typeof getCookieHeaderForUrl === 'function'
+      ? getCookieHeaderForUrl(cookieFilePath, captionTrack.format.url)
+      : '';
+
+    if (cookieHeader) requestHeaders.Cookie = cookieHeader;
+    if (!requestHeaders['User-Agent']) requestHeaders['User-Agent'] = 'Mozilla/5.0';
+    if (!requestHeaders.Referer) requestHeaders.Referer = videoUrl;
+
+    try {
+      const downloadedPath = await downloadCaptionUrlToFile(
+        captionTrack.format.url,
+        directSubtitlePath,
+        requestHeaders
+      );
+      console.info(`Transcript direct download succeeded: ${videoId} (${captionTrack.language})`);
+      return downloadedPath;
+    } catch (error) {
+      directErrors.push(`${captionTrack.language}: ${error.message}`);
+      console.warn(`Direct transcript failed for ${videoId} (${captionTrack.language}):`, error.message);
+    }
+  }
+
+  const ytDlpErrors = [];
+  const availableCookieFiles = typeof getCookiesFilePaths === 'function'
+    ? getCookiesFilePaths()
+    : [];
+  const cookieCandidates = [];
+
+  function addCookieCandidate(candidate) {
+    if (!cookieCandidates.includes(candidate)) cookieCandidates.push(candidate);
+  }
+
+  addCookieCandidate(cookieFilePath);
+  availableCookieFiles.forEach(addCookieCandidate);
+
+  // Four attempts cover the pinned cookie plus several independent sessions,
+  // while avoiding an excessive number of YouTube requests for videos that
+  // genuinely have no captions.
+  const retryCookies = cookieCandidates.slice(0, 4);
+  for (const retryCookieFilePath of retryCookies) {
+    const cookieLabel = retryCookieFilePath ? path.basename(retryCookieFilePath) : 'không-cookie';
+    try {
+      const downloadedPath = await downloadSubtitleWithYtDlp(
+        videoUrl,
+        videoId,
+        fallbackLanguages,
+        retryCookieFilePath
+      );
+      console.info(`Transcript yt-dlp fallback succeeded: ${videoId} (${fallbackLanguages.join(',')}; ${cookieLabel})`);
+      return downloadedPath;
+    } catch (error) {
+      ytDlpErrors.push(`${cookieLabel}: ${error.message}`);
+      console.warn(`yt-dlp transcript failed for ${videoId} (${cookieLabel}):`, error.message);
+    }
+  }
+
+  const languageDescription = originalLanguages.length > 0
+    ? originalLanguages.join(', ')
+    : 'không xác định';
+  const directDescription = directErrors.length > 0
+    ? directErrors.join(' | ')
+    : `metadata không có URL caption (audio gốc: ${languageDescription})`;
+  throw new Error(`Không tải được transcript. Direct: ${directDescription}. yt-dlp: ${ytDlpErrors.join(' | ')}`);
 }
 
 // Hàm fallback để tải subtitle khi ngôn ngữ cụ thể thất bại
