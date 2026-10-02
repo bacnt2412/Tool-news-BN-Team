@@ -2462,3 +2462,55 @@ td:has(.action-buttons) {
     .tts-config-row .btn-config { font-size: 0.95rem; }
 }
 
+/* ProEditor / YouTube upload manager */
+.youtube-login-card { max-width: 540px; margin: 40px auto; padding: 28px; background: #fff; border: 1px solid #e5e7eb; border-radius: 14px; box-shadow: 0 10px 30px rgba(0,0,0,.07); }
+.youtube-login-form, .youtube-add-channel-form { display: grid; gap: 12px; }
+.youtube-login-form { grid-template-columns: 1fr 1fr auto; margin-top: 18px; }
+.youtube-add-channel-form { grid-template-columns: 1.3fr 1.3fr .8fr auto; padding: 16px; margin: 18px 0; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px; }
+.youtube-storage-settings { display: grid; gap: 10px; margin: 0 0 16px; padding: 16px; background: #f8fafc; border: 1px solid #e5e7eb; border-radius: 12px; }
+.youtube-storage-row { display: grid; grid-template-columns: 220px minmax(260px, 1fr) auto; align-items: center; gap: 10px; }
+.youtube-storage-row label { font-weight: 700; color: #334155; }
+.youtube-storage-row button { width: auto !important; white-space: nowrap; }
+.youtube-manager-header, .youtube-video-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
+.youtube-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.youtube-channel-table, .youtube-video-table { width: 100%; border-collapse: collapse; }
+.youtube-channel-table { table-layout: auto; }
+.youtube-channel-table th, .youtube-channel-table td, .youtube-video-table th, .youtube-video-table td { padding: 12px; border-bottom: 1px solid #e5e7eb; vertical-align: middle; text-align: left; }
+.youtube-channel-table th:first-child, .youtube-channel-table td:first-child { width: 36px; }
+.youtube-channel-table th:nth-child(2), .youtube-channel-table td:nth-child(2) { width: 72px; }
+.youtube-channel-table th:nth-child(4), .youtube-channel-table td:nth-child(4) { width: 185px; }
+.youtube-channel-table th:nth-child(5), .youtube-channel-table td:nth-child(5) { width: 150px; }
+.youtube-channel-table th:last-child, .youtube-channel-table td:last-child { width: 440px; }
+.youtube-channel-actions { white-space: nowrap; }
+.youtube-channel-actions button { display: inline-flex !important; align-items: center; justify-content: center; width: auto !important; min-width: 0 !important; margin: 3px 6px 3px 0; padding: 10px 14px; white-space: nowrap; font-size: 14px; }
+.youtube-channel-avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: #eef2ff; }
+.youtube-muted { color: #64748b; font-size: 12px; margin-top: 4px; }
+.youtube-badge { display: inline-block; padding: 5px 9px; border-radius: 999px; background: #e5e7eb; color: #475569; font-size: 12px; font-weight: 700; }
+.youtube-badge.connected, .youtube-badge.status-UPLOAD_SUCCESS { background: #dcfce7; color: #166534; }
+.youtube-badge.status-UPLOADING { background: #dbeafe; color: #1d4ed8; }
+.youtube-badge.status-UPLOAD_ERROR { background: #fee2e2; color: #b91c1c; }
+.youtube-video-row td { padding: 0 18px 18px; background: #f8fafc; }
+.youtube-video-panel { padding: 16px; border: 1px solid #dbeafe; border-radius: 10px; background: #fff; }
+.youtube-videos-modal-content { width: min(1400px, 94vw); max-width: 1400px; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; }
+.youtube-videos-modal-body { overflow: auto; padding: 6px 2px 18px; }
+.youtube-videos-modal-content > .youtube-manager-status { padding: 0 4px; }
+.youtube-video-table th:last-child, .youtube-video-table td:last-child { width: 180px; }
+.youtube-video-table .youtube-upload-now { width: auto !important; min-width: 140px; padding: 10px 14px; white-space: nowrap; }
+.youtube-publish-modal-content { width: min(520px, 92vw); max-width: 520px; }
+.youtube-publish-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 18px; }
+.youtube-publish-actions button { width: auto !important; min-width: 130px; }
+.youtube-video-heading { margin-bottom: 12px; }
+.youtube-pagination { display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 14px; }
+.youtube-empty, .youtube-loading { padding: 28px !important; text-align: center !important; color: #64748b; }
+.youtube-manager-status { min-height: 22px; margin: 8px 0; color: #475569; }
+.youtube-manager-status.success { color: #15803d; }.youtube-manager-status.error { color: #b91c1c; }
+.youtube-manager-status.warning { color: #b45309; }
+.youtube-switch { display: flex; align-items: center; gap: 7px; white-space: nowrap; }
+@media (max-width: 1200px) {
+  .youtube-login-form, .youtube-add-channel-form { grid-template-columns: 1fr; }
+  .youtube-channel-table-wrap { overflow-x: auto; }
+  .youtube-channel-table { min-width: 1050px; }
+  .youtube-channel-table th:last-child, .youtube-channel-table td:last-child { width: 390px; }
+  .youtube-storage-row { grid-template-columns: 1fr; }
+}
+

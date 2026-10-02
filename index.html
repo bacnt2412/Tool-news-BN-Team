@@ -92,6 +92,7 @@
                 <button class="tab-btn" data-tab="download-tab">⬇️ Tải video Youtube</button>
                 <button class="tab-btn" data-tab="video-text-tab">🎬 Video -> Text</button>
                 <button class="tab-btn" data-tab="cut-video-tab">✂️ Cut video</button>
+                <button class="tab-btn" data-tab="youtube-upload-tab">▶ Upload YouTube</button>
                 <button class="tab-btn" data-tab="tts-tab">🔊 Tạo giọng đọc</button>
             </div>
 
@@ -436,7 +437,83 @@ https://www.youtube.com/watch?v=..."
                 </div>
             </div>
 
-            <!-- Tab 5: Text To Speech -->
+            <!-- Quản lý kênh và upload YouTube từ video ProEditor -->
+            <div id="youtube-upload-tab" class="tab-content">
+                <section id="proeditor-login-panel" class="youtube-login-card">
+                    <h2>Đăng nhập ProEditor</h2>
+                    <p class="help-text">Dùng tài khoản tại bn.proeditor.vn để tải kênh và video thuộc tài khoản của bạn.</p>
+                    <form id="proeditor-login-form" class="youtube-login-form">
+                        <input id="proeditor-username" class="settings-input" autocomplete="username" placeholder="Tên đăng nhập" required />
+                        <input id="proeditor-password" class="settings-input" type="password" autocomplete="current-password" placeholder="Mật khẩu" required />
+                        <button class="btn-primary" type="submit">Đăng nhập</button>
+                    </form>
+                    <div id="proeditor-login-status" class="youtube-manager-status"></div>
+                </section>
+                <section id="youtube-channel-manager" style="display:none">
+                    <div class="youtube-manager-header">
+                        <div><h2>Quản lý kênh YouTube</h2><span id="proeditor-current-user" class="youtube-muted"></span></div>
+                        <div class="youtube-actions"><button id="youtube-refresh-btn" class="btn-secondary">Làm mới</button><button id="proeditor-logout-btn" class="btn-secondary">Đăng xuất</button></div>
+                    </div>
+                    <form id="youtube-add-channel-form" class="youtube-add-channel-form">
+                        <input id="youtube-new-channel-id" class="settings-input" placeholder="YouTube Channel ID (UC...)" required />
+                        <input id="youtube-new-channel-name" class="settings-input" placeholder="Tên quản lý kênh" required />
+                        <select id="youtube-new-privacy" class="settings-input"><option value="PRIVATE">Riêng tư</option><option value="PUBLIC">Công khai</option><option value="UNLISTED">Không công khai</option></select>
+                        <button class="btn-primary" type="submit">Thêm kênh</button>
+                    </form>
+                    <div class="youtube-storage-settings">
+                        <div class="youtube-storage-row">
+                            <label for="youtube-download-folder">Thư mục lưu video và thumbnail AI</label>
+                            <input id="youtube-download-folder" class="settings-input" readonly placeholder="Chưa chọn — dùng thư mục tạm và tự xóa" />
+                            <button id="youtube-select-download-folder" class="btn-secondary" type="button">Chọn thư mục</button>
+                        </div>
+                    </div>
+                    <div id="youtube-manager-status" class="youtube-manager-status"></div>
+                    <div class="table-container youtube-channel-table-wrap">
+                        <table class="youtube-channel-table"><thead><tr><th>#</th><th>Ảnh</th><th>Kênh</th><th>OAuth local riêng</th><th>Nguồn upload</th><th>Thao tác</th></tr></thead><tbody id="youtube-channel-body"></tbody></table>
+                    </div>
+                </section>
+            </div>
+
+            <div id="youtube-videos-modal" class="modal" style="display:none">
+                <div class="modal-content youtube-videos-modal-content">
+                    <div class="modal-header">
+                        <h2>Video đã hoàn thành trên ProEditor</h2>
+                        <span class="close" id="youtube-videos-modal-close">&times;</span>
+                    </div>
+                    <div id="youtube-videos-modal-status" class="youtube-manager-status"></div>
+                    <div id="youtube-videos-modal-body" class="youtube-videos-modal-body"></div>
+                </div>
+            </div>
+
+            <div id="youtube-publish-modal" class="modal" style="display:none">
+                <div class="modal-content youtube-publish-modal-content">
+                    <div class="modal-header">
+                        <h2>Cài đặt đăng YouTube</h2>
+                        <span class="close" id="youtube-publish-modal-close">&times;</span>
+                    </div>
+                    <div class="input-group">
+                        <label for="youtube-publish-privacy">Chế độ hiển thị</label>
+                        <select id="youtube-publish-privacy" class="settings-input">
+                            <option value="public">Công khai (Public)</option>
+                            <option value="private">Riêng tư (Private)</option>
+                            <option value="unlisted">Không công khai (Unlisted)</option>
+                            <option value="schedule">Hẹn giờ đăng</option>
+                        </select>
+                    </div>
+                    <div id="youtube-publish-schedule-group" class="input-group" style="display:none">
+                        <label for="youtube-publish-at">Ngày giờ xuất bản</label>
+                        <input id="youtube-publish-at" type="datetime-local" class="settings-input" lang="vi-VN" />
+                        <small class="help-text">Hiển thị DD/MM/YYYY và giờ 24h, theo múi giờ trên máy tính.</small>
+                    </div>
+                    <div id="youtube-publish-status" class="youtube-manager-status"></div>
+                    <div class="youtube-publish-actions">
+                        <button id="youtube-publish-cancel" class="btn-secondary" type="button">Hủy</button>
+                        <button id="youtube-publish-confirm" class="btn-primary" type="button">Bắt đầu upload</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab 6: Text To Speech -->
             <div id="tts-tab" class="tab-content">
                 <div class="tts-section">
                     <h2>🔊 Tạo giọng đọc</h2>

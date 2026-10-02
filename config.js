@@ -33,6 +33,9 @@ module.exports = {
    */
   SETTINGS_API: 'https://bn.proeditor.vn/api/tool-news/get-settings',
 
+  /** API quản lý kênh/video và upload YouTube của ProEditor. */
+  PROEDITOR_API: 'https://bn.proeditor.vn/api',
+
   /**
    * Type parameter cho API settings (theo user request)
    */

@@ -401,6 +401,7 @@ window.seekToSubtitleTime = function (seconds) {
 import { setupInfoListeners } from './renderer.info.js';
 import { setupDownloadListeners } from './renderer.download.js';
 import { setupVideoTextListeners } from './renderer.videotext.js';
+import { setupYoutubeUploadListeners } from './renderer.youtube-upload.js';
 
 // Load settings khi trang load
 window.addEventListener('DOMContentLoaded', async () => {
@@ -421,6 +422,7 @@ window.addEventListener('DOMContentLoaded', async () => {
     setupInfoListeners();
     await setupDownloadListeners();
     setupVideoTextListeners();
+    setupYoutubeUploadListeners();
     setupTtsListeners();
     setupLogsListeners();
 
@@ -2923,6 +2925,7 @@ const tabContents = document.querySelectorAll('.tab-content');
 tabButtons.forEach(button => {
     button.addEventListener('click', () => {
         const targetTab = button.getAttribute('data-tab');
+        sessionStorage.setItem('activeTab', targetTab);
 
         // Remove active class from all tabs and contents
         tabButtons.forEach(btn => btn.classList.remove('active'));
@@ -2933,6 +2936,13 @@ tabButtons.forEach(button => {
         document.getElementById(targetTab).classList.add('active');
     });
 });
+
+// Preserve the current tab when the development hot-reloader refreshes renderer files.
+const savedActiveTab = sessionStorage.getItem('activeTab');
+if (savedActiveTab && document.getElementById(savedActiveTab)) {
+    tabButtons.forEach(btn => btn.classList.toggle('active', btn.getAttribute('data-tab') === savedActiveTab));
+    tabContents.forEach(content => content.classList.toggle('active', content.id === savedActiveTab));
+}
 
 // Cut video functionality
 let cutVideoInitialized = false;

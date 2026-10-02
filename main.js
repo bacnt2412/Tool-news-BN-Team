@@ -1,10 +1,13 @@
-const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog, safeStorage } = require('electron');
 const path = require('path');
 const { execFile } = require('child_process');
 const fs = require('fs');
 const crypto = require('crypto');
 const Store = require('electron-store');
 const log = require('electron-log');
+
+// Keep native date/time controls in Vietnamese format (DD/MM/YYYY, 24-hour time).
+app.commandLine.appendSwitch('lang', 'vi-VN');
 
 // Import config
 const config = require('./config');
@@ -25,9 +28,14 @@ const updateUtils = require('./utils/updateUtils');
 const githubSyncUtils = require('./utils/githubSyncUtils');
 const videoSubFinderUtils = require('./utils/videoSubFinderUtils');
 const cutVideoUtils = require('./utils/cutVideoUtils');
+const proEditorYoutubeUtils = require('./utils/proEditorYoutubeUtils');
+const localYoutubeUploadUtils = require('./utils/localYoutubeUploadUtils');
+const { enableDevReload } = require('./utils/devReload');
 
 // Khởi tạo store để lưu settings
 const store = new Store();
+proEditorYoutubeUtils.initialize({ store, apiBaseUrl: config.PROEDITOR_API });
+localYoutubeUploadUtils.initialize({ store, shell, dialog, safeStorage });
 
 // The log viewer reads this file so yt-dlp/transcript failures can be checked
 // without opening DevTools.
@@ -139,6 +147,7 @@ function createWindow() {
 
 app.whenReady().then(async () => {
   createWindow();
+  enableDevReload({ app, mainWindow, rootDir: __dirname });
   
   // Initialize utils after mainWindow is created
   initializeUtils();
@@ -1404,4 +1413,51 @@ ipcMain.handle('get-video-subtitle-task-status', async (event, taskId) => {
 // Clear temp directory on app quit
 app.on('before-quit', () => {
   videoSubFinderUtils.clearTempDir();
+});
+
+// ProEditor / YouTube channel management. Tokens stay in the main process.
+ipcMain.handle('proeditor-session', () => proEditorYoutubeUtils.session());
+ipcMain.handle('proeditor-login', async (event, credentials) => {
+  log.info(`ProEditor login requested for: ${String(credentials?.username || '').trim()}`);
+  const result = await proEditorYoutubeUtils.login(credentials?.username, credentials?.password);
+  if (!result.success) log.warn(`ProEditor login failed: ${result.error}`);
+  return result;
+});
+ipcMain.handle('proeditor-logout', () => proEditorYoutubeUtils.logout());
+ipcMain.handle('proeditor-channels', () => proEditorYoutubeUtils.channels());
+ipcMain.handle('proeditor-create-channel', (event, data) => proEditorYoutubeUtils.createChannel(data));
+ipcMain.handle('proeditor-remove-channel', (event, id) => proEditorYoutubeUtils.removeChannel(id));
+ipcMain.handle('proeditor-channel-videos', (event, channelId, page) =>
+  proEditorYoutubeUtils.videos(channelId, page));
+ipcMain.handle('proeditor-youtube-oauth', async (event, channelId) => {
+  const result = await proEditorYoutubeUtils.oauthUrl(channelId);
+  if (result.success && result.url) await shell.openExternal(result.url);
+  return result;
+});
+ipcMain.handle('proeditor-youtube-auto-upload', (event, channelId, enabled) =>
+  proEditorYoutubeUtils.setAutoUpload(channelId, enabled));
+ipcMain.handle('proeditor-youtube-disconnect', (event, channelId) =>
+  proEditorYoutubeUtils.disconnect(channelId));
+ipcMain.handle('proeditor-youtube-upload-video', (event, videoId) =>
+  proEditorYoutubeUtils.upload(videoId));
+ipcMain.handle('local-youtube-select-credentials', (event, channelId) =>
+  localYoutubeUploadUtils.selectCredentials(channelId));
+ipcMain.handle('local-youtube-status', (event, channelId) =>
+  localYoutubeUploadUtils.status(channelId));
+ipcMain.handle('local-youtube-connect', (event, channelId, youtubeChannelId) =>
+  localYoutubeUploadUtils.connect(channelId, youtubeChannelId));
+ipcMain.handle('local-youtube-disconnect', (event, channelId) =>
+  localYoutubeUploadUtils.disconnect(channelId));
+ipcMain.handle('local-youtube-storage-settings', () =>
+  localYoutubeUploadUtils.storageSettings());
+ipcMain.handle('local-youtube-select-storage-folder', () =>
+  localYoutubeUploadUtils.selectStorageFolder());
+ipcMain.handle('local-youtube-upload', async (event, channelId, video) => {
+  try {
+    return await localYoutubeUploadUtils.upload(channelId, video, progress => {
+      if (!event.sender.isDestroyed()) event.sender.send('local-youtube-upload-progress', { channelId, videoId: video?._id, ...progress });
+    });
+  } catch (error) {
+    return { success: false, error: error.response?.data?.error?.message || error.message };
+  }
 });
