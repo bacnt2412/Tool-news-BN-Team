@@ -32,7 +32,7 @@ const proEditorYoutubeUtils = require('./utils/proEditorYoutubeUtils');
 const localYoutubeUploadUtils = require('./utils/localYoutubeUploadUtils');
 const { enableDevReload } = require('./utils/devReload');
 
-// Khởi tạo store để lưu settings
+// Khá»Ÿi táº¡o store Ä‘á»ƒ lÆ°u settings
 const store = new Store();
 proEditorYoutubeUtils.initialize({ store, apiBaseUrl: config.PROEDITOR_API });
 localYoutubeUploadUtils.initialize({ store, shell, dialog, safeStorage });
@@ -83,9 +83,9 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: config.DEFAULT_WINDOW_WIDTH,
     height: config.DEFAULT_WINDOW_HEIGHT,
-    show: false, // Không hiển thị ngay, đợi kiểm tra license
+    show: false, // KhÃ´ng hiá»ƒn thá»‹ ngay, Ä‘á»£i kiá»ƒm tra license
     icon: path.join(__dirname, 'build', 'icon.ico'), // App icon
-    autoHideMenuBar: true, // Tự động ẩn menu bar (chỉ hiện khi nhấn Alt)
+    autoHideMenuBar: true, // Tá»± Ä‘á»™ng áº©n menu bar (chá»‰ hiá»‡n khi nháº¥n Alt)
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -93,53 +93,53 @@ function createWindow() {
     }
   });
 
-  // Tắt hoàn toàn menu bar khi build (production)
+  // Táº¯t hoÃ n toÃ n menu bar khi build (production)
   if (app.isPackaged) {
     mainWindow.removeMenu();
   }
 
   mainWindow.loadFile('index.html');
   
-  // Show window khi đã load xong HTML (để renderer có thể check license)
+  // Show window khi Ä‘Ã£ load xong HTML (Ä‘á»ƒ renderer cÃ³ thá»ƒ check license)
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
   });
 
-  // Chặn reload trang (F5, Ctrl+R, Ctrl+Shift+R)
+  // Cháº·n reload trang (F5, Ctrl+R, Ctrl+Shift+R)
   mainWindow.webContents.on('before-input-event', (event, input) => {
-    // Chặn F5
+    // Cháº·n F5
     if (input.key === 'F5') {
       event.preventDefault();
       return;
     }
-    // Chặn Ctrl+R hoặc Cmd+R
+    // Cháº·n Ctrl+R hoáº·c Cmd+R
     if ((input.control || input.meta) && input.key.toLowerCase() === 'r') {
       event.preventDefault();
       return;
     }
-    // Chặn Ctrl+Shift+R (hard reload)
+    // Cháº·n Ctrl+Shift+R (hard reload)
     if ((input.control || input.meta) && input.shift && input.key.toLowerCase() === 'r') {
       event.preventDefault();
       return;
     }
   });
 
-  // Chặn navigation (reload) - chỉ chặn khi đã load xong
+  // Cháº·n navigation (reload) - chá»‰ cháº·n khi Ä‘Ã£ load xong
   let isInitialLoad = true;
   mainWindow.webContents.once('did-finish-load', () => {
     isInitialLoad = false;
   });
 
   mainWindow.webContents.on('will-navigate', (event, navigationUrl) => {
-    // Cho phép load ban đầu
+    // Cho phÃ©p load ban Ä‘áº§u
     if (isInitialLoad) {
       return;
     }
-    // Chặn mọi navigation sau khi đã load (reload)
+    // Cháº·n má»i navigation sau khi Ä‘Ã£ load (reload)
     event.preventDefault();
   });
 
-  // Mở DevTools trong chế độ dev
+  // Má»Ÿ DevTools trong cháº¿ Ä‘á»™ dev
   if (process.argv.includes('--dev')) {
     mainWindow.webContents.openDevTools();
   }
@@ -156,10 +156,10 @@ app.whenReady().then(async () => {
   updateUtils.setMainWindow(mainWindow);
   updateUtils.configureAutoUpdater();
   
-  // Auto check for updates after 10 seconds (optional, có thể bỏ nếu không muốn)
+  // Auto check for updates after 10 seconds (optional, cÃ³ thá»ƒ bá» náº¿u khÃ´ng muá»‘n)
   // updateUtils.autoCheckOnStartup(10000);
 
-  // Load cookie file từ store nếu có
+  // Load cookie file tá»« store náº¿u cÃ³
   const savedCookies = store.get('ytDlpCookies', '');
   if (cookieUtils.normalizeCookies(savedCookies).length > 0) {
     try {
@@ -169,7 +169,7 @@ app.whenReady().then(async () => {
     }
   }
 
-  // Xóa các file subtitle cũ khi app khởi động
+  // XÃ³a cÃ¡c file subtitle cÅ© khi app khá»Ÿi Ä‘á»™ng
   try {
     const subtitlesDir = pathUtils.getSubtitlesDir();
     if (fs.existsSync(subtitlesDir)) {
@@ -181,18 +181,18 @@ app.whenReady().then(async () => {
             fs.unlinkSync(filePath);
           }
         } catch (error) {
-          console.warn(`Không thể xóa file subtitle ${file}:`, error.message);
+          console.warn(`KhÃ´ng thá»ƒ xÃ³a file subtitle ${file}:`, error.message);
         }
       });
     }
   } catch (error) {
-    console.warn('Lỗi khi xóa subtitle cũ:', error.message);
+    console.warn('Lá»—i khi xÃ³a subtitle cÅ©:', error.message);
   }
 
-  // Tự động check và update yt-dlp version khi app khởi động
+  // Tá»± Ä‘á»™ng check vÃ  update yt-dlp version khi app khá»Ÿi Ä‘á»™ng
   setTimeout(async () => {
     try {
-      // Đọc version từ file (trong bin)
+      // Äá»c version tá»« file (trong bin)
       const versionFilePath = pathUtils.getYtDlpVersionFilePath();
 
       let fileVersion = null;
@@ -205,33 +205,33 @@ app.whenReady().then(async () => {
           }
         }
       } catch (error) {
-        console.warn('Không thể đọc version file:', error.message);
+        console.warn('KhÃ´ng thá»ƒ Ä‘á»c version file:', error.message);
       }
 
-      // Kiểm tra version và tự động update nếu cần (không silent để hiển thị modal)
-      const checkResult = await ytDlpUtils.checkYtDlpUpdate(false, cookieUtils.addCookiesToArgs); // false = hiển thị modal
+      // Kiá»ƒm tra version vÃ  tá»± Ä‘á»™ng update náº¿u cáº§n (khÃ´ng silent Ä‘á»ƒ hiá»ƒn thá»‹ modal)
+      const checkResult = await ytDlpUtils.checkYtDlpUpdate(false, cookieUtils.addCookiesToArgs); // false = hiá»ƒn thá»‹ modal
 
       if (checkResult && !checkResult.error) {
-        // Nếu yt-dlp không tồn tại hoặc có version mới, tự động tải/update
+        // Náº¿u yt-dlp khÃ´ng tá»“n táº¡i hoáº·c cÃ³ version má»›i, tá»± Ä‘á»™ng táº£i/update
         if (checkResult.needsDownload || (!checkResult.upToDate && checkResult.latestVersion)) {
           const message = checkResult.needsDownload 
-            ? 'yt-dlp không tìm thấy, đang tải...'
-            : `Phát hiện version mới: ${checkResult.latestVersion}, đang tự động cập nhật...`;
+            ? 'yt-dlp khÃ´ng tÃ¬m tháº¥y, Ä‘ang táº£i...'
+            : `PhÃ¡t hiá»‡n version má»›i: ${checkResult.latestVersion}, Ä‘ang tá»± Ä‘á»™ng cáº­p nháº­t...`;
           try {
             await ytDlpUtils.updateYtDlp(cookieUtils.addCookiesToArgs);
           } catch (updateError) {
-            console.error('Lỗi khi tự động cập nhật/tải yt-dlp:', updateError.message);
-            // Gửi error status để unblock UI
+            console.error('Lá»—i khi tá»± Ä‘á»™ng cáº­p nháº­t/táº£i yt-dlp:', updateError.message);
+            // Gá»­i error status Ä‘á»ƒ unblock UI
             if (mainWindow && !mainWindow.isDestroyed()) {
               mainWindow.webContents.send('yt-dlp-update-status', {
                 status: 'error',
-                message: `Lỗi khi cập nhật: ${updateError.message}`
+                message: `Lá»—i khi cáº­p nháº­t: ${updateError.message}`
               });
             }
           }
         }
       } else if (checkResult && checkResult.error) {
-        // Có lỗi khi check, vẫn unblock UI
+        // CÃ³ lá»—i khi check, váº«n unblock UI
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send('yt-dlp-update-status', {
             status: 'error',
@@ -240,16 +240,16 @@ app.whenReady().then(async () => {
         }
       }
     } catch (error) {
-      console.error('Lỗi khi kiểm tra version yt-dlp:', error.message);
-      // Gửi error status để unblock UI
+      console.error('Lá»—i khi kiá»ƒm tra version yt-dlp:', error.message);
+      // Gá»­i error status Ä‘á»ƒ unblock UI
       if (mainWindow && !mainWindow.isDestroyed()) {
         mainWindow.webContents.send('yt-dlp-update-status', {
           status: 'error',
-          message: `Lỗi khi kiểm tra: ${error.message}`
+          message: `Lá»—i khi kiá»ƒm tra: ${error.message}`
         });
       }
     }
-  }, 500); // Đợi 500ms để UI load xong
+  }, 500); // Äá»£i 500ms Ä‘á»ƒ UI load xong
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {
@@ -276,7 +276,7 @@ const detectOriginalLanguageFromListSubs = videoUtils.detectOriginalLanguageFrom
 const downloadSubtitle = videoUtils.downloadSubtitle;
 const downloadSubtitleFallback = videoUtils.downloadSubtitleFallback;
 
-// IPC handler để lấy thông tin video. Download tab only needs metadata for
+// IPC handler Ä‘á»ƒ láº¥y thÃ´ng tin video. Download tab only needs metadata for
 // naming and explicitly disables transcript retrieval.
 ipcMain.handle('get-video-info', async (event, videoUrl, options = {}) => {
   try {
@@ -285,7 +285,7 @@ ipcMain.handle('get-video-info', async (event, videoUrl, options = {}) => {
     const ytDlpPath = findYtDlpPath();
     const videoCookieFilePath = cookieUtils.getNextCookiesFilePath();
 
-    // Lấy thông tin video dạng JSON
+    // Láº¥y thÃ´ng tin video dáº¡ng JSON
     const args = [
       videoUrl,
       '--dump-json',
@@ -294,17 +294,19 @@ ipcMain.handle('get-video-info', async (event, videoUrl, options = {}) => {
       '--no-playlist'
     ];
 
-    // Thêm cookie nếu có
+    // ThÃªm cookie náº¿u cÃ³
     cookieUtils.addCookiesToArgs(args, videoCookieFilePath);
     ytDlpUtils.addEjsRuntimeArgs(args);
 
     const videoInfo = await new Promise((resolve, reject) => {
-      execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024 * 10, windowsHide: true }, (error, stdout, stderr) => {
+      // T10 Fix: timeout so a hung yt-dlp never blocks the UI indefinitely
+      const YTDLP_TIMEOUT_MS = 120_000; // 2 minutes
+      const child = execFile(ytDlpPath, args, { maxBuffer: 1024 * 1024 * 10, windowsHide: true }, (error, stdout, stderr) => {
+        clearTimeout(timer);
         if (error) {
-          reject(new Error(`yt-dlp failed: ${stderr || error.message}`));
+          reject(new Error('yt-dlp failed: ' + (stderr || error.message)));
           return;
         }
-
         try {
           const info = JSON.parse(stdout);
           resolve(info);
@@ -312,6 +314,10 @@ ipcMain.handle('get-video-info', async (event, videoUrl, options = {}) => {
           reject(new Error('Failed to parse video info'));
         }
       });
+      const timer = setTimeout(() => {
+        try { child.kill(); } catch (_) {}
+        reject(new Error('yt-dlp timed out after ' + (YTDLP_TIMEOUT_MS / 1000) + 's'));
+      }, YTDLP_TIMEOUT_MS);
     });
 
     const result = {
@@ -326,8 +332,8 @@ ipcMain.handle('get-video-info', async (event, videoUrl, options = {}) => {
       url: videoUrl
     };
 
-    // Không tải thumbnail ngay, chỉ tải khi cần OCR
-    // Thumbnail URL đã có trong result.thumbnail để hiển thị trực tiếp
+    // KhÃ´ng táº£i thumbnail ngay, chá»‰ táº£i khi cáº§n OCR
+    // Thumbnail URL Ä‘Ã£ cÃ³ trong result.thumbnail Ä‘á»ƒ hiá»ƒn thá»‹ trá»±c tiáº¿p
 
     if (includeTranscript) {
       const availableSubtitleLanguages = [
@@ -336,7 +342,7 @@ ipcMain.handle('get-video-info', async (event, videoUrl, options = {}) => {
       ];
       log.info(`Video ${result.videoId}: original audio=${videoInfo.original_language || videoInfo.default_audio_language || 'unknown'}; caption tracks=${availableSubtitleLanguages.join(', ') || 'none'}`);
 
-      // Chỉ tab Lấy thông tin cần subtitle/transcript.
+      // Chá»‰ tab Láº¥y thÃ´ng tin cáº§n subtitle/transcript.
       try {
         const subtitlePath = await videoUtils.downloadSubtitle(
           videoUrl,
@@ -357,7 +363,7 @@ ipcMain.handle('get-video-info', async (event, videoUrl, options = {}) => {
         // error text as copyable transcript content. Expose the real reason for
         // support and diagnosis instead of replacing it with a generic message.
         result.subtitle = '';
-        result.subtitleError = error.message || 'Không rõ nguyên nhân';
+        result.subtitleError = error.message || 'KhÃ´ng rÃµ nguyÃªn nhÃ¢n';
       }
     } else {
       log.info(`Video metadata ready for download: ${result.videoId}`);
@@ -369,20 +375,20 @@ ipcMain.handle('get-video-info', async (event, videoUrl, options = {}) => {
     log.error(`Unable to get video info for ${videoUrl}: ${error.message || 'Unknown error'}`);
     return {
       success: false,
-      error: error.message || 'Không thể lấy thông tin video. Đảm bảo yt-dlp đã được cài đặt và có trong PATH.'
+      error: error.message || 'KhÃ´ng thá»ƒ láº¥y thÃ´ng tin video. Äáº£m báº£o yt-dlp Ä‘Ã£ Ä‘Æ°á»£c cÃ i Ä‘áº·t vÃ  cÃ³ trong PATH.'
     };
   }
 });
 
 // Video/subtitle functions moved to videoUtils.js
 
-// IPC handler để xử lý OCR trên thumbnail
+// IPC handler Ä‘á»ƒ xá»­ lÃ½ OCR trÃªn thumbnail
 ipcMain.handle('extract-text-from-thumbnail', async (event, thumbnailUrl, videoId) => {
   try {
     return await ocrUtils.performSmartOCR(thumbnailUrl);
   } catch (error) {
     console.error('OCR Error:', error);
-    let errorMessage = 'Lỗi khi xử lý OCR';
+    let errorMessage = 'Lá»—i khi xá»­ lÃ½ OCR';
 
     if (error.statusCode || error.status) {
       errorMessage = `API Error: ${error.statusCode || error.status} - ${error.message}`;
@@ -396,12 +402,12 @@ ipcMain.handle('extract-text-from-thumbnail', async (event, thumbnailUrl, videoI
 
 // OCR functions moved to ocrUtils.js
 
-// IPC handler để mở URL external
+// IPC handler Ä‘á»ƒ má»Ÿ URL external
 ipcMain.handle('open-external', async (event, url) => {
   await shell.openExternal(url);
 });
 
-// IPC handler để mở thư mục
+// IPC handler Ä‘á»ƒ má»Ÿ thÆ° má»¥c
 ipcMain.handle('open-folder', async (event, folderPath) => {
   try {
     await shell.openPath(folderPath);
@@ -444,7 +450,7 @@ ipcMain.handle('check-license', async () => {
   } catch (error) {
     return {
       success: false,
-      message: `Lỗi kiểm tra license: ${error.message}`,
+      message: `Lá»—i kiá»ƒm tra license: ${error.message}`,
       macAddress: licenseUtils.getMacAddress()
     };
   }
@@ -469,7 +475,7 @@ ipcMain.handle('sync-from-github', async () => {
     console.error('GitHub sync error:', error);
     return {
       success: false,
-      message: `Lỗi đồng bộ từ GitHub: ${error.message}`,
+      message: `Lá»—i Ä‘á»“ng bá»™ tá»« GitHub: ${error.message}`,
       details: {
         cookies: { success: false, message: error.message },
         settings: { success: false, message: error.message }
@@ -542,12 +548,12 @@ ipcMain.handle('get-app-logs', async () => {
     fs.closeSync(file);
 
     return {
-      content: `${start > 0 ? '[Chỉ hiển thị phần cuối của file log]\n\n' : ''}${buffer.toString('utf8')}`,
+      content: `${start > 0 ? '[Chá»‰ hiá»ƒn thá»‹ pháº§n cuá»‘i cá»§a file log]\n\n' : ''}${buffer.toString('utf8')}`,
       path: logPath
     };
   } catch (error) {
     log.error(`Unable to read log file: ${error.message || 'Unknown error'}`);
-    throw new Error(`Không thể đọc log: ${error.message || 'Không rõ nguyên nhân'}`);
+    throw new Error(`KhÃ´ng thá»ƒ Ä‘á»c log: ${error.message || 'KhÃ´ng rÃµ nguyÃªn nhÃ¢n'}`);
   }
 });
 
@@ -558,24 +564,24 @@ ipcMain.handle('show-app-log-in-folder', async () => {
 });
 
 ipcMain.handle('save-settings', async (event, settings) => {
-  // Lưu OCR provider
+  // LÆ°u OCR provider
   store.set('ocrProvider', 'google');
 
-  // Lưu Google Vision settings
+  // LÆ°u Google Vision settings
   if (settings.googleVision) {
     store.set('googleVision', settings.googleVision);
   }
 
-  // Lưu Google TTS settings
+  // LÆ°u Google TTS settings
   if (settings.googleTts) {
     store.set('googleTts', settings.googleTts);
   }
 
-  // Lưu yt-dlp cookies
+  // LÆ°u yt-dlp cookies
   if (settings.ytDlpCookies !== undefined) {
     store.set('ytDlpCookies', settings.ytDlpCookies);
 
-    // Lưu cookie vào file nếu có
+    // LÆ°u cookie vÃ o file náº¿u cÃ³
     if (cookieUtils.normalizeCookies(settings.ytDlpCookies).length > 0) {
       try {
         await cookieUtils.saveCookiesToFile(settings.ytDlpCookies);
@@ -583,17 +589,17 @@ ipcMain.handle('save-settings', async (event, settings) => {
         console.error('Error saving cookies file:', error);
       }
     } else {
-      // Xóa file cookie nếu không có cookie
+      // XÃ³a file cookie náº¿u khÃ´ng cÃ³ cookie
       cookieUtils.deleteCookiesFile();
     }
   }
 
-  // Lưu last selected TTS config ID
+  // LÆ°u last selected TTS config ID
   if (settings.lastSelectedTtsConfigId !== undefined) {
     store.set('lastSelectedTtsConfigId', settings.lastSelectedTtsConfigId);
   }
 
-  // Lưu TTS save folder
+  // LÆ°u TTS save folder
   if (settings.ttsSaveFolder !== undefined) {
     store.set('ttsSaveFolder', settings.ttsSaveFolder);
   }
@@ -609,30 +615,30 @@ const compareVersions = ytDlpUtils.compareVersions;
 const updateYtDlp = ytDlpUtils.updateYtDlp;
 const checkYtDlpUpdate = ytDlpUtils.checkYtDlpUpdate;
 
-// IPC handler để check yt-dlp version
+// IPC handler Ä‘á»ƒ check yt-dlp version
 ipcMain.handle('check-yt-dlp-update', async () => {
   return await ytDlpUtils.checkYtDlpUpdate(false, cookieUtils.addCookiesToArgs);
 });
 
-// IPC handler để update yt-dlp
+// IPC handler Ä‘á»ƒ update yt-dlp
 ipcMain.handle('update-yt-dlp', async () => {
   try {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('yt-dlp-update-status', {
         status: 'updating',
-        message: 'Đang cập nhật yt-dlp...'
+        message: 'Äang cáº­p nháº­t yt-dlp...'
       });
     }
 
     const result = await ytDlpUtils.updateYtDlp(cookieUtils.addCookiesToArgs);
 
-    // Lấy version mới sau khi update
+    // Láº¥y version má»›i sau khi update
     const newVersion = await ytDlpUtils.getCurrentYtDlpVersion();
 
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('yt-dlp-update-status', {
         status: 'updated',
-        message: `Đã cập nhật thành công! Version mới: ${newVersion}`,
+        message: `ÄÃ£ cáº­p nháº­t thÃ nh cÃ´ng! Version má»›i: ${newVersion}`,
         version: newVersion
       });
     }
@@ -643,14 +649,14 @@ ipcMain.handle('update-yt-dlp', async () => {
     if (mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents.send('yt-dlp-update-status', {
         status: 'update-error',
-        message: `Lỗi khi cập nhật: ${error.message}`
+        message: `Lá»—i khi cáº­p nháº­t: ${error.message}`
       });
     }
     return { success: false, error: error.message };
   }
 });
 
-// IPC handler để lấy version hiện tại
+// IPC handler Ä‘á»ƒ láº¥y version hiá»‡n táº¡i
 ipcMain.handle('get-yt-dlp-version', async () => {
   try {
     const version = await ytDlpUtils.getCurrentYtDlpVersion();
@@ -660,12 +666,12 @@ ipcMain.handle('get-yt-dlp-version', async () => {
   }
 });
 
-// IPC handler để chọn thư mục
+// IPC handler Ä‘á»ƒ chá»n thÆ° má»¥c
 ipcMain.handle('select-folder', async () => {
   try {
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openDirectory'],
-      title: 'Chọn thư mục để lưu video'
+      title: 'Chá»n thÆ° má»¥c Ä‘á»ƒ lÆ°u video'
     });
 
     if (result.canceled) {
@@ -678,7 +684,7 @@ ipcMain.handle('select-folder', async () => {
   }
 });
 
-// IPC handler để download video
+// IPC handler Ä‘á»ƒ download video
 function sanitizeThumbnailFileName(fileName) {
   return String(fileName || '')
     .replace(/[<>:"/\\|?*\x00-\x1F]/g, ' ')
@@ -692,11 +698,11 @@ ipcMain.handle('download-thumbnails-batch', async (event, options = {}) => {
     const items = Array.isArray(options.items) ? options.items : [];
 
     if (!folderPath || !fs.existsSync(folderPath)) {
-      return { success: false, error: 'Thư mục lưu không hợp lệ.' };
+      return { success: false, error: 'ThÆ° má»¥c lÆ°u khÃ´ng há»£p lá»‡.' };
     }
 
     if (items.length === 0) {
-      return { success: false, error: 'Không có thumbnail để tải.' };
+      return { success: false, error: 'KhÃ´ng cÃ³ thumbnail Ä‘á»ƒ táº£i.' };
     }
 
     const savedFiles = [];
@@ -708,11 +714,11 @@ ipcMain.handle('download-thumbnails-batch', async (event, options = {}) => {
       const requestedName = sanitizeThumbnailFileName(item.fileName);
 
       if (!thumbnailUrl) {
-        throw new Error(`Thumbnail #${index + 1} không có URL.`);
+        throw new Error(`Thumbnail #${index + 1} khÃ´ng cÃ³ URL.`);
       }
 
       if (!requestedName) {
-        throw new Error(`Tên file dòng ${index + 1} không hợp lệ.`);
+        throw new Error(`TÃªn file dÃ²ng ${index + 1} khÃ´ng há»£p lá»‡.`);
       }
 
       const parsedUrl = new URL(thumbnailUrl);
@@ -727,7 +733,7 @@ ipcMain.handle('download-thumbnails-batch', async (event, options = {}) => {
       const finalFileKey = finalFileName.toLowerCase();
 
       if (usedFileNames.has(finalFileKey)) {
-        throw new Error(`Tên file bị trùng: ${finalFileName}`);
+        throw new Error(`TÃªn file bá»‹ trÃ¹ng: ${finalFileName}`);
       }
 
       usedFileNames.add(finalFileKey);
@@ -740,7 +746,7 @@ ipcMain.handle('download-thumbnails-batch', async (event, options = {}) => {
     return { success: true, savedFiles };
   } catch (error) {
     console.error('Error downloading thumbnails batch:', error);
-    return { success: false, error: error.message || 'Không thể tải thumbnail.' };
+    return { success: false, error: error.message || 'KhÃ´ng thá»ƒ táº£i thumbnail.' };
   }
 });
 
@@ -748,7 +754,7 @@ ipcMain.handle('download-video', async (event, options) => {
   try {
     return await downloadUtils.downloadVideo(options);
   } catch (error) {
-    const errorMessage = error?.message || 'Không thể tải video.';
+    const errorMessage = error?.message || 'KhÃ´ng thá»ƒ táº£i video.';
     console.error(`Download video failed (task ${options?.taskId ?? 'unknown'}):`, errorMessage);
     return { success: false, error: errorMessage };
   }
@@ -758,7 +764,7 @@ ipcMain.handle('cut-video', async (event, options) => {
   return await cutVideoUtils.cutVideo(options);
 });
 
-// IPC handler để chọn video file
+// IPC handler Ä‘á»ƒ chá»n video file
 ipcMain.handle('select-video-file', async () => {
   try {
     const result = await dialog.showOpenDialog(mainWindow, {
@@ -767,7 +773,7 @@ ipcMain.handle('select-video-file', async () => {
         { name: 'Video Files', extensions: ['mp4', 'avi', 'mkv', 'mov', 'wmv', 'flv', 'webm', 'm4v'] },
         { name: 'All Files', extensions: ['*'] }
       ],
-      title: 'Chọn video file'
+      title: 'Chá»n video file'
     });
 
     if (result.canceled) {
@@ -1139,7 +1145,7 @@ ipcMain.handle('tts-synthesize', async (event, options) => {
     } else {
       // Ask user where to save
       const { canceled, filePath: dialogPath } = await dialog.showSaveDialog(mainWindow, {
-        title: 'Lưu file giọng đọc',
+        title: 'LÆ°u file giá»ng Ä‘á»c',
         defaultPath: path.join(app.getPath('music') || app.getPath('desktop'), defaultName + defaultExt),
         filters: [ { name: 'Audio', extensions: [ defaultExt.replace('.', '') ] }, { name: 'All', extensions: ['*'] } ]
       });
@@ -1170,7 +1176,7 @@ ipcMain.handle('tts-synthesize', async (event, options) => {
       if (!isRunning) {
         const startResult = await voicevoxUtils.startVoiceVoxServer(voicevoxUrl);
         if (!startResult.success) {
-          return { success: false, error: startResult.error || 'Không thể khởi động VoiceVox server' };
+          return { success: false, error: startResult.error || 'KhÃ´ng thá»ƒ khá»Ÿi Ä‘á»™ng VoiceVox server' };
         }
       }
       
@@ -1270,7 +1276,7 @@ ipcMain.handle('tts-preview', async (event, options) => {
       if (!isRunning) {
         const startResult = await voicevoxUtils.startVoiceVoxServer(voicevoxUrl);
         if (!startResult.success) {
-          return { success: false, error: startResult.error || 'Không thể khởi động VoiceVox server' };
+          return { success: false, error: startResult.error || 'KhÃ´ng thá»ƒ khá»Ÿi Ä‘á»™ng VoiceVox server' };
         }
       }
       
@@ -1309,7 +1315,7 @@ ipcMain.handle('tts-preview', async (event, options) => {
   }
 });
 
-// IPC handler để xử lý video subtitle với VideoSubFinder
+// IPC handler Ä‘á»ƒ xá»­ lÃ½ video subtitle vá»›i VideoSubFinder
 ipcMain.handle('process-video-subtitle', async (event, videoPath, cropBox) => {
   try {
     // Import videoSubFinderUtils
@@ -1327,7 +1333,7 @@ ipcMain.handle('process-video-subtitle', async (event, videoPath, cropBox) => {
   }
 });
 
-// IPC handler để dừng xử lý video subtitle
+// IPC handler Ä‘á»ƒ dá»«ng xá»­ lÃ½ video subtitle
 ipcMain.handle('stop-video-subtitle-processing', async (event, taskId) => {
   try {
     const videoSubFinderUtils = require('./utils/videoSubFinderUtils');
@@ -1338,7 +1344,7 @@ ipcMain.handle('stop-video-subtitle-processing', async (event, taskId) => {
   }
 });
 
-// IPC handler để chạy lại task đã dừng
+// IPC handler Ä‘á»ƒ cháº¡y láº¡i task Ä‘Ã£ dá»«ng
 ipcMain.handle('restart-video-subtitle-processing', async (event, taskId) => {
   try {
     const videoSubFinderUtils = require('./utils/videoSubFinderUtils');
@@ -1369,12 +1375,12 @@ ipcMain.handle('rerun-video-ocr', async (event, taskId) => {
   }
 });
 
-// IPC handler để đọc file SRT
+// IPC handler Ä‘á»ƒ Ä‘á»c file SRT
 ipcMain.handle('read-srt-file', async (event, srtPath) => {
   try {
     const fs = require('fs');
     if (!fs.existsSync(srtPath)) {
-      return { success: false, error: 'File SRT không tồn tại' };
+      return { success: false, error: 'File SRT khÃ´ng tá»“n táº¡i' };
     }
     const content = fs.readFileSync(srtPath, 'utf8');
     return { success: true, content };
@@ -1396,7 +1402,7 @@ ipcMain.handle('write-srt-file', async (event, srtPath, content) => {
   }
 });
 
-// IPC handler để lấy task status
+// IPC handler Ä‘á»ƒ láº¥y task status
 ipcMain.handle('get-video-subtitle-task-status', async (event, taskId) => {
   try {
     const videoSubFinderUtils = require('./utils/videoSubFinderUtils');
@@ -1404,7 +1410,7 @@ ipcMain.handle('get-video-subtitle-task-status', async (event, taskId) => {
     if (task) {
       return { success: true, status: task.status, progress: task.progress, outputDir: task.outputDir, srtPath: task.srtPath };
     }
-    return { success: false, error: 'Task không tìm thấy' };
+    return { success: false, error: 'Task khÃ´ng tÃ¬m tháº¥y' };
   } catch (error) {
     return { success: false, error: error.message };
   }
@@ -1448,16 +1454,147 @@ ipcMain.handle('local-youtube-connect', (event, channelId, youtubeChannelId) =>
   localYoutubeUploadUtils.connect(channelId, youtubeChannelId));
 ipcMain.handle('local-youtube-disconnect', (event, channelId) =>
   localYoutubeUploadUtils.disconnect(channelId));
+
+ipcMain.handle('local-youtube-proxy-get', (event, channelId) => 
+  localYoutubeUploadUtils.getProxyConfig(channelId));
+ipcMain.handle('local-youtube-proxy-save', (event, channelId, config) => {
+  localYoutubeUploadUtils.saveProxyConfig(channelId, config);
+  return { success: true };
+});
+ipcMain.handle('local-youtube-proxy-test', async (event, config) => {
+  try {
+    const axios = require('axios');
+    const { HttpsProxyAgent } = require('https-proxy-agent');
+    const { SocksProxyAgent } = require('socks-proxy-agent');
+    let agent;
+    if (!config.host || !config.port) return { success: false, error: 'Thiếu Host hoặc Port' };
+    const auth = (config.user && config.pass) ? `${encodeURIComponent(config.user)}:${encodeURIComponent(config.pass)}@` : '';
+    if (config.type === 'socks4' || config.type === 'socks5') {
+      const protocol = config.type === 'socks4' ? 'socks4:' : 'socks5:';
+      agent = new SocksProxyAgent(`${protocol}//${auth}${config.host}:${config.port}`);
+    } else {
+      agent = new HttpsProxyAgent(`http://${auth}${config.host}:${config.port}`);
+    }
+    const response = await axios.get('https://api.ipify.org?format=json', { httpsAgent: agent, timeout: 10000 });
+    return { success: true, ip: response.data.ip };
+  } catch (e) {
+    return { success: false, error: e.message };
+  }
+});
+
 ipcMain.handle('local-youtube-storage-settings', () =>
   localYoutubeUploadUtils.storageSettings());
 ipcMain.handle('local-youtube-select-storage-folder', () =>
   localYoutubeUploadUtils.selectStorageFolder());
+
+// B4: Map webContentsId -> AbortController so each window has its own cancel handle
+const youtubeUploadControllers = new Map();
+
 ipcMain.handle('local-youtube-upload', async (event, channelId, video) => {
+  const wid = event.sender.id;
+  const controller = new AbortController();
+  youtubeUploadControllers.set(wid, controller);
+  // Throttle progress IPC to ~10fps (100ms) â€” 8 parallel streams fire data events
+  // hundreds of times/sec, sending all of them causes UI jank and IPC overhead.
+  let lastSentAt = 0;
+  let lastPct = -1;
+  const sendProgress = (progress) => {
+    if (event.sender.isDestroyed()) return;
+    const pct = Math.round(progress.percent || 0);
+    const now = Date.now();
+    // Always send stage-change events and warnings; throttle percent-only updates
+    if (progress.stage === 'thumbnail-warning' || pct !== lastPct || now - lastSentAt >= 100) {
+      lastSentAt = now; lastPct = pct;
+      event.sender.send('local-youtube-upload-progress', { channelId, videoId: video?._id, ...progress, percent: pct });
+    }
+  };
   try {
-    return await localYoutubeUploadUtils.upload(channelId, video, progress => {
-      if (!event.sender.isDestroyed()) event.sender.send('local-youtube-upload-progress', { channelId, videoId: video?._id, ...progress });
-    });
+    return await localYoutubeUploadUtils.upload(channelId, video, sendProgress, controller.signal);
   } catch (error) {
-    return { success: false, error: error.response?.data?.error?.message || error.message };
+    const cancelled = controller.signal.aborted;
+    return { success: false, cancelled, error: cancelled ? 'Upload da bi huy.' : (error.response?.data?.error?.message || error.message) };
+  } finally {
+    youtubeUploadControllers.delete(wid);
   }
 });
+
+// B4: Cancel handler
+ipcMain.handle('local-youtube-cancel-upload', event => {
+  const controller = youtubeUploadControllers.get(event.sender.id);
+  if (controller) { controller.abort(); return { success: true }; }
+  return { success: false, error: 'Khong co upload nao dang chay.' };
+});
+
+
+ipcMain.handle('local-youtube-auto-get', (event, channelId) =>
+  localYoutubeUploadUtils.autoStatus(channelId));
+
+ipcMain.handle('local-youtube-auto-save', (event, channelId, config) =>
+  localYoutubeUploadUtils.saveAutoConfig(channelId, config));
+
+ipcMain.handle('local-youtube-auto-run-now', () => {
+  runAutoUploadPoller();
+  return { triggered: true };
+});
+
+// ─── Auto-upload Poller ───────────────────────────────────────────────────────
+
+function sendToAllWindows(channel, data) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed() && !win.webContents.isDestroyed()) win.webContents.send(channel, data);
+  }
+}
+
+let autoUploadRunning = false;
+
+async function runAutoUploadPoller() {
+  if (autoUploadRunning) return;
+  autoUploadRunning = true;
+  try {
+    const channelIds = localYoutubeUploadUtils.allChannelIds();
+    log.info(`[AutoUpload] Poller tick — ${channelIds.length} channel(s) found.`);
+    for (const channelId of channelIds) {
+      const check = localYoutubeUploadUtils.shouldAutoUpload(channelId);
+      if (!check.ok) { log.info(`[AutoUpload] ${channelId}: skipped — ${check.reason}`); continue; }
+      const videosResult = await proEditorYoutubeUtils.videos(channelId, 1);
+      if (!videosResult.success) { log.warn(`[AutoUpload] ${channelId}: ProEditor error — ${videosResult.error}`); continue; }
+      const localStatus = localYoutubeUploadUtils.status(channelId);
+      const uploadedIds = new Set(Object.keys(localStatus.uploads || {}));
+      const video = videosResult.videos.find(v => !uploadedIds.has(String(v._id)));
+      if (!video) { log.info(`[AutoUpload] ${channelId}: no new videos.`); continue; }
+      const cfg = localYoutubeUploadUtils.autoConfig(channelId);
+      const publishAt = localYoutubeUploadUtils.nextPublishAt(channelId);
+      const videoWithOptions = { ...video, youtubeUploadOptions: { privacyStatus: cfg.privacyStatus, publishAt } };
+      const videoTitle = video.aiTitle || video.name || video._id;
+      log.info(`[AutoUpload] ${channelId}: uploading "${videoTitle}" ...`);
+      const baseEvent = { channelId, videoId: String(video._id), videoTitle };
+      sendToAllWindows('local-youtube-auto-log', { type: 'start', ...baseEvent });
+      // Throttle: only emit progress when stage changes or percent jumps ≥5%
+      let lastStage = ''; let lastPct = -1;
+      try {
+        const result = await localYoutubeUploadUtils.upload(channelId, videoWithOptions, progress => {
+          const pct = Math.round(progress.percent || 0);
+          const stageChanged = progress.stage !== lastStage;
+          if (stageChanged) { lastStage = progress.stage; lastPct = -1; }
+          const pctJumped = pct >= lastPct + 5 || (pct === 100 && lastPct < 100);
+          if (!pctJumped) return;
+          lastPct = pct === 100 ? 101 : pct; // 101 blocks any subsequent 100% for this stage
+          sendToAllWindows('local-youtube-auto-log', { type: 'progress', ...baseEvent, ...progress, percent: pct });
+        }, null);
+        if (result.success) {
+          localYoutubeUploadUtils.recordAutoUpload(channelId);
+          log.info(`[AutoUpload] ${channelId}: success — ${result.youtubeUrl}`);
+          sendToAllWindows('local-youtube-auto-log', { type: 'success', ...baseEvent, youtubeUrl: result.youtubeUrl });
+        } else {
+          log.warn(`[AutoUpload] ${channelId}: failed — ${result.error}`);
+          sendToAllWindows('local-youtube-auto-log', { type: 'error', ...baseEvent, error: result.error });
+        }
+      } catch (err) {
+        log.error(`[AutoUpload] ${channelId}: exception — ${err.message}`);
+        sendToAllWindows('local-youtube-auto-log', { type: 'error', ...baseEvent, error: err.message });
+      }
+    }
+  } finally { autoUploadRunning = false; }
+}
+
+setTimeout(() => { runAutoUploadPoller(); setInterval(runAutoUploadPoller, 5 * 60 * 1000); }, 60 * 1000);

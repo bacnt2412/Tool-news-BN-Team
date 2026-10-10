@@ -94,10 +94,20 @@ contextBridge.exposeInMainWorld('electronAPI', {
   localYoutubeStatus: (channelId) => ipcRenderer.invoke('local-youtube-status', channelId),
   localYoutubeConnect: (channelId, youtubeChannelId) => ipcRenderer.invoke('local-youtube-connect', channelId, youtubeChannelId),
   localYoutubeDisconnect: (channelId) => ipcRenderer.invoke('local-youtube-disconnect', channelId),
+  localYoutubeProxyGet: (channelId) => ipcRenderer.invoke('local-youtube-proxy-get', channelId),
+  localYoutubeProxySave: (channelId, config) => ipcRenderer.invoke('local-youtube-proxy-save', channelId, config),
+  localYoutubeProxyTest: (config) => ipcRenderer.invoke('local-youtube-proxy-test', config),
+
   localYoutubeStorageSettings: () => ipcRenderer.invoke('local-youtube-storage-settings'),
   localYoutubeSelectStorageFolder: () => ipcRenderer.invoke('local-youtube-select-storage-folder'),
   localYoutubeUpload: (channelId, video) => ipcRenderer.invoke('local-youtube-upload', channelId, video),
+  localYoutubeCancelUpload: () => ipcRenderer.invoke('local-youtube-cancel-upload'), // B4
   onLocalYoutubeUploadProgress: (callback) => ipcRenderer.on('local-youtube-upload-progress', (event, data) => callback(data)),
+  // Auto-upload
+  localYoutubeAutoGet: (channelId) => ipcRenderer.invoke('local-youtube-auto-get', channelId),
+  localYoutubeAutoSave: (channelId, config) => ipcRenderer.invoke('local-youtube-auto-save', channelId, config),
+  localYoutubeAutoRunNow: () => ipcRenderer.invoke('local-youtube-auto-run-now'),
+  onLocalYoutubeAutoLog: (callback) => ipcRenderer.on('local-youtube-auto-log', (event, data) => callback(data)),
   onUpdateStatus: (callback) => {
     ipcRenderer.on('update-status', (event, data) => callback(data));
   }

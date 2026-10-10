@@ -2,13 +2,15 @@ const { spawn, execFile } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const pathUtils = require('./pathUtils');
+const config = require('../config'); // T4: read concurrency from central config
 let ocrUtils;
 let store;
 
 let mainWindow;
 let processingQueue = [];
 let activeProcesses = 0;
-const MAX_CONCURRENT = 2;
+// T4 Fix: was hardcoded to 2 — now reads from config.js (MAX_CONCURRENT_VIDEO_PROCESSING)
+const MAX_CONCURRENT = config.MAX_CONCURRENT_VIDEO_PROCESSING || 2;
 
 // Clear temp directory on startup
 function clearTempDir() {

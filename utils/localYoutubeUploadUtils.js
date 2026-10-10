@@ -2,16 +2,51 @@ const axios = require('axios');
 const crypto = require('crypto');
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
 const os = require('os');
 const path = require('path');
 const { pipeline } = require('stream/promises');
+
+const { HttpsProxyAgent } = require('https-proxy-agent');
+const { SocksProxyAgent } = require('socks-proxy-agent');
 
 const SCOPES = [
   'https://www.googleapis.com/auth/youtube.upload',
   'https://www.googleapis.com/auth/youtube.readonly',
 ];
 const CHUNK_SIZE = 8 * 1024 * 1024;
+// Force IPv4 for all Google API requests.
+// Node.js resolves AAAA (IPv6) before A (IPv4) by default; on networks where
+// IPv6 routing to Google is broken this causes ETIMEDOUT (2001:4860:...:443).
+const googleAgent = new https.Agent({ family: 4, keepAlive: true });
+
 let store;
+
+function getProxyConfig(channelId) {
+  const data = load(channelId);
+  return data?.proxy || { enabled: false, type: 'http', host: '', port: '', user: '', pass: '' };
+}
+
+function saveProxyConfig(channelId, config) {
+  const data = load(channelId) || {};
+  data.proxy = config;
+  save(channelId, data);
+}
+
+function getProxyAgent(channelId) {
+  const cfg = getProxyConfig(channelId);
+  if (!cfg || !cfg.enabled || !cfg.host || !cfg.port) return googleAgent;
+  const auth = (cfg.user && cfg.pass) ? `${encodeURIComponent(cfg.user)}:${encodeURIComponent(cfg.pass)}@` : '';
+  const port = cfg.port;
+  const host = cfg.host;
+  
+  if (cfg.type === 'socks4' || cfg.type === 'socks5') {
+    const protocol = cfg.type === 'socks4' ? 'socks4:' : 'socks5:';
+    return new SocksProxyAgent(`${protocol}//${auth}${host}:${port}`);
+  }
+  return new HttpsProxyAgent(`http://${auth}${host}:${port}`);
+}
+
 let shell;
 let dialog;
 let safeStorage;
@@ -106,7 +141,7 @@ async function exchangeToken(credentials, code, redirectUri) {
     redirect_uri: redirectUri, grant_type: 'authorization_code',
   });
   const response = await axios.post('https://oauth2.googleapis.com/token', body.toString(), {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 30000,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 30000, httpsAgent: getProxyAgent(channelId),
   });
   return response.data;
 }
@@ -128,7 +163,7 @@ async function connect(channelId, expectedYoutubeChannelId) {
         const tokens = await exchangeToken(saved.credentials, url.searchParams.get('code'), redirectUri);
         const accessToken = tokens.access_token;
         const channels = await axios.get('https://www.googleapis.com/youtube/v3/channels', {
-          params: { part: 'id,snippet', mine: true }, headers: { Authorization: `Bearer ${accessToken}` }, timeout: 30000,
+          params: { part: 'id,snippet', mine: true }, headers: { Authorization: `Bearer ${accessToken}` }, timeout: 30000, httpsAgent: getProxyAgent(channelId),
         });
         const selected = channels.data.items?.find(item => item.id === expectedYoutubeChannelId);
         if (!selected) throw new Error('Tài khoản Google vừa chọn không quản lý đúng kênh YouTube này.');
@@ -164,14 +199,89 @@ async function accessToken(channelId) {
     refresh_token: saved.tokens.refresh_token, grant_type: 'refresh_token',
   });
   const response = await axios.post('https://oauth2.googleapis.com/token', body.toString(), {
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 30000,
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, timeout: 30000, httpsAgent: getProxyAgent(channelId),
   });
   saved.tokens = { ...saved.tokens, ...response.data, expiry_date: Date.now() + response.data.expires_in * 1000 };
   save(channelId, saved);
   return saved.tokens.access_token;
 }
 
-async function upload(channelId, video, onProgress = () => {}) {
+/**
+ * Download a file using parallel Range requests (like IDM) when the server
+ * supports Accept-Ranges: bytes. Falls back to a single stream otherwise.
+ *
+ * @param {string} url         Source URL
+ * @param {string} destPath    Local destination path
+ * @param {Function} onPct     Progress callback (percent: 0-100)
+ * @param {AbortSignal} signal  Optional AbortSignal
+ * @param {number} concurrency Number of parallel connections (default 4)
+ */
+async function downloadFile(url, destPath, onPct, signal, concurrency = 8) {
+  // HEAD request to know file size and range support
+  let total = 0;
+  let supportsRange = false;
+  try {
+    const head = await axios.head(url, { timeout: 15000, maxRedirects: 5, signal });
+    total = Number(head.headers['content-length'] || 0);
+    supportsRange = String(head.headers['accept-ranges'] || '').toLowerCase() === 'bytes' && total > 2 * 1024 * 1024;
+  } catch (_) { /* server may not support HEAD - fall through to single stream */ }
+
+  // Marker file: created before download, deleted after success.
+  // If download is aborted (cancel / crash), marker remains → next run sees incomplete file.
+  // This is critical for parallel download which pre-allocates the full file size via ftruncateSync,
+  // making the file LOOK complete (size matches) even when content is partial/zeroed.
+  const incompleteMarker = destPath + '.incomplete';
+  fs.writeFileSync(incompleteMarker, '');
+
+  try {
+    onPct(0);
+
+    if (!supportsRange) {
+      // Single-stream fallback (server doesn't support range or file is small)
+      const resp = await axios.get(url, { responseType: 'stream', timeout: 30000, maxRedirects: 5, signal });
+      const len = Number(resp.headers['content-length'] || 0) || total;
+      let received = 0;
+      resp.data.on('data', buf => { received += buf.length; if (len) onPct(received * 100 / len); });
+      await pipeline(resp.data, fs.createWriteStream(destPath, { highWaterMark: 2 * 1024 * 1024 }));
+    } else {
+      // Parallel chunk download
+      // Pre-allocate the file at full size so each chunk can write at its own offset
+      const fd = fs.openSync(destPath, 'w');
+      fs.ftruncateSync(fd, total);
+      fs.closeSync(fd);
+
+      const chunkSize = Math.ceil(total / concurrency);
+      let received = 0;
+
+      await Promise.all(Array.from({ length: concurrency }, (_, i) => {
+        const start = i * chunkSize;
+        if (start >= total) return Promise.resolve();
+        const end = Math.min(start + chunkSize - 1, total - 1);
+        return (async () => {
+          const resp = await axios.get(url, {
+            responseType: 'stream',
+            headers: { Range: `bytes=${start}-${end}` },
+            timeout: 0, maxRedirects: 5, signal,
+          });
+          resp.data.on('data', buf => { received += buf.length; onPct(received * 100 / total); });
+          await pipeline(resp.data, fs.createWriteStream(destPath, { flags: 'r+', start, highWaterMark: 2 * 1024 * 1024 }));
+        })();
+      }));
+    }
+
+    // Download completed successfully — remove incomplete marker
+    try { fs.unlinkSync(incompleteMarker); } catch (_) {}
+  } catch (error) {
+    // Keep the marker on failure so next run knows the file is incomplete
+    throw error;
+  }
+}
+
+async function upload(channelId, video, onProgress = () => {}, signal = null) {
+  // B4: Accept AbortSignal so callers can cancel mid-upload
+  function checkAborted() {
+    if (signal?.aborted) throw new Error('Upload đã bị hủy.');
+  }
   const sourceUrl = String(video?.videoSuccess || video?.videoLocalUrl || '').trim();
   if (!/^https?:\/\//i.test(sourceUrl)) throw new Error('Video hoàn thành không có URL tải hợp lệ.');
   const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bn-youtube-upload-'));
@@ -182,18 +292,51 @@ async function upload(channelId, video, onProgress = () => {}) {
   const thumbnailUrl = String(video?.thumbnail || video?.thumbnailSuccess || '').trim();
   let thumbnailPath = path.join(folders.downloadFolder || tempDir, `${baseName}-thumbnail.jpg`);
   try {
-    onProgress({ stage: 'download', percent: 0 });
-    const response = await axios.get(sourceUrl, { responseType: 'stream', timeout: 0, maxRedirects: 5 });
-    const total = Number(response.headers['content-length'] || 0);
-    let received = 0;
-    response.data.on('data', chunk => { received += chunk.length; if (total) onProgress({ stage: 'download', percent: received * 100 / total }); });
-    await pipeline(response.data, fs.createWriteStream(filePath));
+    checkAborted();
+    // Check if video file already exists and is not corrupted.
+    // We do a HEAD request to get the expected size, then compare with local file.
+    let skipDownload = false;
+    const incompleteMarker = filePath + '.incomplete';
+    const fileExists = fs.existsSync(filePath);
+    const fileIncomplete = fs.existsSync(incompleteMarker); // marker left by a cancelled/failed download
+
+    if (fileExists && !fileIncomplete) {
+      // File exists and has no incomplete marker — verify size against remote
+      const localSize = fs.statSync(filePath).size;
+      if (localSize > 0) {
+        try {
+          const head = await axios.head(sourceUrl, { timeout: 15000, maxRedirects: 5, signal });
+          const remoteSize = Number(head.headers['content-length'] || 0);
+          skipDownload = !remoteSize || localSize === remoteSize;
+          if (skipDownload) {
+            onProgress({ stage: 'download', percent: 100 });
+          } else {
+            // Size mismatch — file is incomplete/corrupted, re-download
+            fs.unlinkSync(filePath);
+          }
+        } catch (_) {
+          // Can't reach server to verify — assume existing file is valid
+          skipDownload = true;
+          onProgress({ stage: 'download', percent: 100 });
+        }
+      }
+    } else if (fileExists && fileIncomplete) {
+      // File was pre-allocated by parallel download but aborted — must re-download
+      try { fs.unlinkSync(filePath); } catch (_) {}
+      try { fs.unlinkSync(incompleteMarker); } catch (_) {}
+    }
+
+    if (!skipDownload) {
+      await downloadFile(sourceUrl, filePath, pct => onProgress({ stage: 'download', percent: pct }), signal);
+    }
+    checkAborted();
     let hasThumbnail = false;
     let thumbnailMimeType = 'image/jpeg';
     if (/^https?:\/\//i.test(thumbnailUrl)) {
       onProgress({ stage: 'thumbnail-download', percent: 0 });
       try {
-        const thumbnailResponse = await axios.get(thumbnailUrl, { responseType: 'stream', timeout: 60000, maxRedirects: 5 });
+        // B3 Fix: add connection timeout for thumbnail download
+        const thumbnailResponse = await axios.get(thumbnailUrl, { responseType: 'stream', timeout: 30000, maxRedirects: 5, signal });
         const responseMimeType = String(thumbnailResponse.headers['content-type'] || '').split(';')[0].toLowerCase();
         if (['image/jpeg', 'image/png'].includes(responseMimeType)) thumbnailMimeType = responseMimeType;
         if (thumbnailMimeType === 'image/png') thumbnailPath = path.join(folders.downloadFolder || tempDir, `${baseName}-thumbnail.png`);
@@ -204,6 +347,7 @@ async function upload(channelId, video, onProgress = () => {}) {
         onProgress({ stage: 'thumbnail-warning', message: `Không tải được thumbnail AI: ${error.message}` });
       }
     }
+    checkAborted();
     const size = fs.statSync(filePath).size;
     const token = await accessToken(channelId);
     const publishOptions = video?.youtubeUploadOptions || {};
@@ -220,15 +364,16 @@ async function upload(channelId, video, onProgress = () => {}) {
     };
     if (scheduled) metadata.status.publishAt = publishAt.toISOString();
     const session = await axios.post('https://www.googleapis.com/upload/youtube/v3/videos?uploadType=resumable&part=snippet,status', metadata, {
-      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Upload-Content-Length': size, 'X-Upload-Content-Type': 'video/mp4' }, timeout: 30000,
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Upload-Content-Length': size, 'X-Upload-Content-Type': 'video/mp4' }, timeout: 30000, signal, httpsAgent: getProxyAgent(channelId),
     });
     let offset = 0, uploaded;
     while (offset < size) {
+      checkAborted();
       const end = Math.min(offset + CHUNK_SIZE - 1, size - 1);
       const chunk = fs.createReadStream(filePath, { start: offset, end });
       const result = await axios.put(session.headers.location, chunk, {
         headers: { Authorization: `Bearer ${await accessToken(channelId)}`, 'Content-Type': 'video/mp4', 'Content-Length': end - offset + 1, 'Content-Range': `bytes ${offset}-${end}/${size}` },
-        timeout: 0, maxBodyLength: Infinity, validateStatus: status => status === 308 || status === 200 || status === 201,
+        timeout: 0, maxBodyLength: Infinity, validateStatus: status => status === 308 || status === 200 || status === 201, signal, httpsAgent: getProxyAgent(channelId),
       });
       if (result.status === 200 || result.status === 201) uploaded = result.data;
       offset = end + 1;
@@ -251,6 +396,7 @@ async function upload(channelId, video, onProgress = () => {}) {
             },
             timeout: 60000,
             maxBodyLength: Infinity,
+            httpsAgent: getProxyAgent(channelId),
           }
         );
         onProgress({ stage: 'thumbnail-upload', percent: 100 });
@@ -273,7 +419,7 @@ async function upload(channelId, video, onProgress = () => {}) {
       savedThumbnailPath: folders.downloadFolder && hasThumbnail ? thumbnailPath : '',
     };
     const saved = load(channelId);
-    saved.uploads = { ...(saved.uploads || {}), [String(video._id)]: { youtubeVideoId: result.youtubeVideoId, youtubeUrl: result.youtubeUrl, uploadedAt: new Date().toISOString() } };
+    saved.uploads = { ...(saved.uploads || {}), [String(video._id)]: { youtubeVideoId: result.youtubeVideoId, youtubeUrl: result.youtubeUrl, uploadedAt: new Date().toISOString(), privacyStatus: video.youtubeUploadOptions?.privacyStatus || 'private' } };
     save(channelId, saved);
     return result;
   } finally { fs.rmSync(tempDir, { recursive: true, force: true }); }
@@ -281,7 +427,7 @@ async function upload(channelId, video, onProgress = () => {}) {
 
 function status(channelId) {
   const data = load(channelId);
-  return { configured: Boolean(data?.credentials), connected: Boolean(data?.tokens?.refresh_token), channelTitle: data?.channel?.title || '', projectId: data?.credentials?.projectId || '', uploads: data?.uploads || {} };
+  return { configured: Boolean(data?.credentials), connected: Boolean(data?.tokens?.refresh_token), channelTitle: data?.channel?.title || '', projectId: data?.credentials?.projectId || '', uploads: data?.uploads || {}, proxy: data?.proxy || {} };
 }
 
 function disconnect(channelId) {
@@ -290,4 +436,121 @@ function disconnect(channelId) {
   return { success: true };
 }
 
-module.exports = { initialize, selectCredentials, connect, upload, status, disconnect, storageSettings, selectStorageFolder };
+// ─── Auto-upload ────────────────────────────────────────────────────────────
+
+const DEFAULT_AUTO_CONFIG = { enabled: false, privacyStatus: 'private', restMinutes: 30, maxPerDay: 5, scheduledTimes: [] };
+
+function autoConfig(channelId) {
+  const data = load(channelId);
+  return { ...DEFAULT_AUTO_CONFIG, ...(data?.autoUpload || {}) };
+}
+
+function saveAutoConfig(channelId, config) {
+  const data = load(channelId);
+  if (!data) return { success: false, error: 'Kênh chưa được cấu hình.' };
+  save(channelId, { ...data, autoUpload: { ...DEFAULT_AUTO_CONFIG, ...config } });
+  return { success: true };
+}
+
+/** Local date string YYYY-MM-DD in machine timezone. */
+function todayStr() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function todayLog(channelId) {
+  return load(channelId)?.autoUploadLog?.[todayStr()] || { count: 0, lastAt: null };
+}
+
+/** Record that an auto-upload completed for this channel. */
+function recordAutoUpload(channelId) {
+  const data = load(channelId);
+  if (!data) return;
+  const today = todayStr();
+  const log = data.autoUploadLog || {};
+  const entry = log[today] || { count: 0, lastAt: null };
+  entry.count += 1;
+  entry.lastAt = new Date().toISOString();
+  log[today] = entry;
+  // Prune entries older than 7 days
+  const cutoff = Date.now() - 7 * 24 * 3600 * 1000;
+  for (const k of Object.keys(log)) { if (new Date(k).getTime() < cutoff) delete log[k]; }
+  save(channelId, { ...data, autoUploadLog: log });
+}
+
+/**
+ * Check whether auto-upload is allowed to run for this channel right now.
+ * Returns { ok: true } or { ok: false, reason: string }
+ */
+function shouldAutoUpload(channelId) {
+  const cfg = autoConfig(channelId);
+  if (!cfg.enabled) return { ok: false, reason: 'Tự động upload chưa bật.' };
+  if (!load(channelId)?.tokens?.refresh_token) return { ok: false, reason: 'Kênh chưa kết nối OAuth.' };
+
+  const log = todayLog(channelId);
+  if (log.count >= cfg.maxPerDay) return { ok: false, reason: `Đã đạt ${cfg.maxPerDay} video hôm nay.` };
+
+  if (log.lastAt) {
+    const elapsed = Date.now() - new Date(log.lastAt).getTime();
+    const restMs = cfg.restMinutes * 60 * 1000;
+    if (elapsed < restMs) {
+      const remainMins = Math.ceil((restMs - elapsed) / 60000);
+      return { ok: false, reason: `Còn ${remainMins} phút nghỉ.` };
+    }
+  }
+  return { ok: true };
+}
+
+/**
+ * Calculate the publishAt datetime for the next video in schedule mode.
+ * Slot index = today's completed count (before this upload).
+ * If the slot time has already passed today, schedule for tomorrow.
+ */
+function nextPublishAt(channelId) {
+  const cfg = autoConfig(channelId);
+  if (cfg.privacyStatus !== 'schedule') return null;
+  const slots = cfg.scheduledTimes || [];
+  if (!slots.length) return null;
+
+  const count = todayLog(channelId).count; // uploads already done today (before this one)
+  const slot = slots[count % slots.length]; // e.g. "09:00"
+  if (!slot) return null;
+
+  const [hh, mm] = slot.split(':').map(Number);
+  const publishDate = new Date();
+  publishDate.setHours(hh, mm, 0, 0);
+  if (publishDate.getTime() <= Date.now() + 60000) publishDate.setDate(publishDate.getDate() + 1);
+  return publishDate.toISOString();
+}
+
+/** Return all channelIds that have local YouTube credentials in the store. */
+function allChannelIds() {
+  if (!store) return [];
+  const ytLocal = store.get('youtubeLocal', {});
+  return Object.keys(ytLocal || {});
+}
+
+/** Auto-upload status for a channel (used by renderer to show badge). */
+function autoStatus(channelId) {
+  const cfg = autoConfig(channelId);
+  const log = todayLog(channelId);
+  return {
+    enabled: cfg.enabled,
+    privacyStatus: cfg.privacyStatus,
+    restMinutes: cfg.restMinutes,
+    maxPerDay: cfg.maxPerDay,
+    scheduledTimes: cfg.scheduledTimes,
+    todayCount: log.count,
+    lastAt: log.lastAt,
+    check: shouldAutoUpload(channelId),
+  };
+}
+
+module.exports = {
+  getProxyConfig,
+  saveProxyConfig,
+  initialize, selectCredentials, connect, upload, status, disconnect, storageSettings, selectStorageFolder,
+  // auto-upload
+  autoConfig, saveAutoConfig, recordAutoUpload, shouldAutoUpload, nextPublishAt, allChannelIds, autoStatus,
+};
+

@@ -6,7 +6,7 @@
         <title>Tool hỗ trợ làm News - Bacnt2412</title>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+        <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
         <link rel="stylesheet" href="styles.css" />
     </head>
 
@@ -455,7 +455,7 @@ https://www.youtube.com/watch?v=..."
                 <section id="youtube-channel-manager" style="display:none">
                     <div class="youtube-manager-header">
                         <div><h2>Quản lý kênh YouTube</h2><span id="proeditor-current-user" class="youtube-muted"></span></div>
-                        <div class="youtube-actions"><button id="youtube-refresh-btn" class="btn-secondary">Làm mới</button><button id="proeditor-logout-btn" class="btn-secondary">Đăng xuất</button></div>
+                        <div class="youtube-actions"><button id="youtube-auto-log-btn" class="btn-secondary">&#x1F4CB; Nh&#x1eadt; k&#x00fd;</button><button id="youtube-refresh-btn" class="btn-secondary">Làm mới</button><button id="proeditor-logout-btn" class="btn-secondary">Đăng xuất</button></div>
                     </div>
                     <form id="youtube-add-channel-form" class="youtube-add-channel-form">
                         <input id="youtube-new-channel-id" class="settings-input" placeholder="YouTube Channel ID (UC...)" required />
@@ -472,7 +472,7 @@ https://www.youtube.com/watch?v=..."
                     </div>
                     <div id="youtube-manager-status" class="youtube-manager-status"></div>
                     <div class="table-container youtube-channel-table-wrap">
-                        <table class="youtube-channel-table"><thead><tr><th>#</th><th>Ảnh</th><th>Kênh</th><th>OAuth local riêng</th><th>Nguồn upload</th><th>Thao tác</th></tr></thead><tbody id="youtube-channel-body"></tbody></table>
+                        <table class="youtube-channel-table"><thead><tr><th>#</th><th>Ảnh</th><th>Kênh</th><th>OAuth Local</th><th>T&#7921; &#273;&#7897;ng</th><th>Thao tác</th></tr></thead><tbody id="youtube-channel-body"></tbody></table>
                     </div>
                 </section>
             </div>
@@ -505,16 +505,123 @@ https://www.youtube.com/watch?v=..."
                     </div>
                     <div id="youtube-publish-schedule-group" class="input-group" style="display:none">
                         <label for="youtube-publish-at">Ngày giờ xuất bản</label>
-                        <input id="youtube-publish-at" type="datetime-local" class="settings-input" lang="vi-VN" />
+                        <input id="youtube-publish-at" type="datetime-local" class="settings-input" lang="en-GB" />
                         <small class="help-text">Hiển thị DD/MM/YYYY và giờ 24h, theo múi giờ trên máy tính.</small>
                     </div>
                     <div id="youtube-publish-status" class="youtube-manager-status"></div>
                     <div class="youtube-publish-actions">
                         <button id="youtube-publish-cancel" class="btn-secondary" type="button">Hủy</button>
                         <button id="youtube-publish-confirm" class="btn-primary" type="button">Bắt đầu upload</button>
+                        <button id="youtube-upload-cancel-btn" class="btn-danger" type="button" style="display:none">⏹ Hủy upload</button>
                     </div>
                 </div>
             </div>
+            <!-- Proxy Settings Modal -->
+            <div id="youtube-proxy-modal" class="modal" style="display:none">
+                <div class="modal-content" style="max-width: 450px;">
+                    <div class="modal-header">
+                        <h2>Cài đặt Proxy kênh</h2>
+                        <span class="close" id="youtube-proxy-modal-close">&times;</span>
+                    </div>
+                    <div class="youtube-proxy-body">
+                        <label class="toggle-switch">
+                            <input type="checkbox" id="youtube-proxy-enabled">
+                            <span class="slider round"></span>
+                            <span class="toggle-label">Bật Proxy cho kênh này</span>
+                        </label>
+                        <div class="input-group" style="margin-top: 15px;">
+                            <label for="youtube-proxy-type">Loại Proxy</label>
+                            <select id="youtube-proxy-type" class="settings-input">
+                                <option value="http">HTTP / HTTPS</option>
+                                <option value="socks4">SOCKS4</option>
+                                <option value="socks5">SOCKS5</option>
+                            </select>
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <div class="input-group" style="flex: 3;">
+                                <label for="youtube-proxy-host">IP / Host</label>
+                                <input id="youtube-proxy-host" type="text" class="settings-input" placeholder="Ví dụ: 192.168.1.100" />
+                            </div>
+                            <div class="input-group" style="flex: 1;">
+                                <label for="youtube-proxy-port">Port</label>
+                                <input id="youtube-proxy-port" type="number" class="settings-input" placeholder="8080" />
+                            </div>
+                        </div>
+                        <div style="display: flex; gap: 10px; margin-top: 10px;">
+                            <div class="input-group" style="flex: 1;">
+                                <label for="youtube-proxy-user">Tài khoản (Tùy chọn)</label>
+                                <input id="youtube-proxy-user" type="text" class="settings-input" />
+                            </div>
+                            <div class="input-group" style="flex: 1;">
+                                <label for="youtube-proxy-pass">Mật khẩu (Tùy chọn)</label>
+                                <input id="youtube-proxy-pass" type="password" class="settings-input" />
+                            </div>
+                        </div>
+                        <div id="youtube-proxy-status" class="youtube-manager-status" style="margin-top: 10px;"></div>
+                        <div class="youtube-publish-actions" style="margin-top: 15px;">
+                            <button id="youtube-proxy-test-btn" class="btn-secondary" type="button">Kiểm tra Proxy</button>
+                            <button id="youtube-proxy-save-btn" class="btn-primary" type="button">Lưu</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Auto-upload Settings Modal -->
+            <div id="youtube-auto-modal" class="modal" style="display:none">
+                <div class="modal-content youtube-auto-modal-content">
+                    <div class="modal-header">
+                        <h2>⚡ Upload Tự Động &mdash; <span id="auto-modal-channel-name"></span></h2>
+                        <span class="close" id="youtube-auto-modal-close">&times;</span>
+                    </div>
+                    <label class="yt-auto-toggle-row">
+                        <input type="checkbox" id="auto-enabled">
+                        <span>Bật tự động upload cho kênh này</span>
+                    </label>
+                    <div id="auto-settings-panel">
+                        <div class="input-group">
+                            <label for="auto-privacy">Chế độ hiển thị</label>
+                            <select id="auto-privacy" class="settings-input">
+                                <option value="public">Công khai (Public)</option>
+                                <option value="private">Riêng tư (Private)</option>
+                                <option value="unlisted">Không công khai (Unlisted)</option>
+                                <option value="schedule">Hẹn giờ đăng (Schedule)</option>
+                            </select>
+                        </div>
+                        <div class="auto-two-col">
+                            <div class="input-group">
+                                <label for="auto-rest-minutes">Nghỉ giữa 2 lần upload (phút)</label>
+                                <input type="number" id="auto-rest-minutes" class="settings-input" min="1" max="1440" value="30" />
+                            </div>
+                            <div class="input-group">
+                                <label for="auto-max-per-day">Giới hạn upload / ngày</label>
+                                <input type="number" id="auto-max-per-day" class="settings-input" min="1" max="50" value="5" />
+                            </div>
+                        </div>
+                        <div id="auto-schedule-group" style="display:none">
+                            <p class="auto-slots-label">Mốc giờ đăng <small>(số mốc = giới hạn/ngày)</small></p>
+                            <div id="auto-schedule-slots" class="auto-slots-grid"></div>
+                        </div>
+                    </div>
+                    <div id="auto-today-status" class="auto-today-status" style="display:none"></div>
+                    <div id="auto-modal-status" class="youtube-manager-status"></div>
+                    <div class="youtube-publish-actions">
+                        <button id="auto-modal-cancel" class="btn-secondary" type="button">Đóng</button>
+                        <button id="auto-modal-save" class="btn-primary" type="button">💾 Lưu cài đặt</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Auto-upload Activity Log Modal -->
+            <div id="youtube-auto-log-modal" class="modal" style="display:none">
+                <div class="modal-content youtube-auto-log-modal-content">
+                    <div class="modal-header">
+                        <h2>📋 Nhật ký Upload Tự Động</h2><button id="youtube-auto-run-now-btn" class="btn-primary" style="margin-left:auto;font-size:var(--text-xs);padding:4px 10px">&#x25B6; Ch&#x1ea1;y ngay</button>
+                        <span class="close" id="youtube-auto-log-close">&times;</span>
+                    </div>
+                    <div id="youtube-auto-log-body" class="youtube-auto-log-body"></div>
+                </div>
+            </div>
+
 
             <!-- Tab 6: Text To Speech -->
             <div id="tts-tab" class="tab-content">
