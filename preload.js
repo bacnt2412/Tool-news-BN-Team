@@ -101,6 +101,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   localYoutubeStorageSettings: () => ipcRenderer.invoke('local-youtube-storage-settings'),
   localYoutubeSelectStorageFolder: () => ipcRenderer.invoke('local-youtube-select-storage-folder'),
   localYoutubeUpload: (channelId, video) => ipcRenderer.invoke('local-youtube-upload', channelId, video),
+  localYoutubeUploadHistory: (channelId) => ipcRenderer.invoke('local-youtube-upload-history', channelId),
   localYoutubeCancelUpload: () => ipcRenderer.invoke('local-youtube-cancel-upload'), // B4
   onLocalYoutubeUploadProgress: (callback) => ipcRenderer.on('local-youtube-upload-progress', (event, data) => callback(data)),
   // Auto-upload

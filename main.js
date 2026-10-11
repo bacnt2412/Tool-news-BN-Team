@@ -1509,7 +1509,7 @@ ipcMain.handle('local-youtube-upload', async (event, channelId, video) => {
     }
   };
   try {
-    return await localYoutubeUploadUtils.upload(channelId, video, sendProgress, controller.signal);
+    return await localYoutubeUploadUtils.upload(channelId, video, sendProgress, controller.signal, 'MANUAL');
   } catch (error) {
     const cancelled = controller.signal.aborted;
     return { success: false, cancelled, error: cancelled ? 'Upload da bi huy.' : (error.response?.data?.error?.message || error.message) };
@@ -1524,6 +1524,9 @@ ipcMain.handle('local-youtube-cancel-upload', event => {
   if (controller) { controller.abort(); return { success: true }; }
   return { success: false, error: 'Khong co upload nao dang chay.' };
 });
+
+ipcMain.handle('local-youtube-upload-history', (event, channelId) =>
+  localYoutubeUploadUtils.uploadHistory(channelId));
 
 
 ipcMain.handle('local-youtube-auto-get', (event, channelId) =>
@@ -1580,7 +1583,7 @@ async function runAutoUploadPoller() {
           if (!pctJumped) return;
           lastPct = pct === 100 ? 101 : pct; // 101 blocks any subsequent 100% for this stage
           sendToAllWindows('local-youtube-auto-log', { type: 'progress', ...baseEvent, ...progress, percent: pct });
-        }, null);
+        }, null, 'AUTO');
         if (result.success) {
           localYoutubeUploadUtils.recordAutoUpload(channelId);
           log.info(`[AutoUpload] ${channelId}: success — ${result.youtubeUrl}`);

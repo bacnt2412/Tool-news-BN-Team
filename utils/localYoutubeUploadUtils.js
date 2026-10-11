@@ -110,6 +110,22 @@ function safeFileName(value) {
   return cleaned || 'video';
 }
 
+function safeDeleteFile(targetPath) {
+  if (!targetPath) return;
+  try {
+    if (fs.existsSync(targetPath)) {
+      fs.unlinkSync(targetPath);
+    }
+  } catch (err) {
+    // Retry once on Windows in case file handle release is slightly delayed
+    setTimeout(() => {
+      try {
+        if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath);
+      } catch (_) {}
+    }, 500);
+  }
+}
+
 function parseClientJson(data) {
   if (data?.type === 'service_account') {
     throw new Error('Đây là Service Account JSON. YouTube upload yêu cầu OAuth Client loại Desktop app.');
@@ -135,7 +151,7 @@ async function selectCredentials(channelId) {
   } catch (error) { return { success: false, error: error.message }; }
 }
 
-async function exchangeToken(credentials, code, redirectUri) {
+async function exchangeToken(channelId, credentials, code, redirectUri) {
   const body = new URLSearchParams({
     code, client_id: credentials.clientId, client_secret: credentials.clientSecret,
     redirect_uri: redirectUri, grant_type: 'authorization_code',
@@ -160,7 +176,7 @@ async function connect(channelId, expectedYoutubeChannelId) {
         if (url.searchParams.get('state') !== state) throw new Error('OAuth state không hợp lệ');
         if (url.searchParams.get('error')) throw new Error(`Google OAuth: ${url.searchParams.get('error')}`);
         const redirectUri = `http://127.0.0.1:${server.address().port}/oauth2callback`;
-        const tokens = await exchangeToken(saved.credentials, url.searchParams.get('code'), redirectUri);
+        const tokens = await exchangeToken(channelId, saved.credentials, url.searchParams.get('code'), redirectUri);
         const accessToken = tokens.access_token;
         const channels = await axios.get('https://www.googleapis.com/youtube/v3/channels', {
           params: { part: 'id,snippet', mine: true }, headers: { Authorization: `Bearer ${accessToken}` }, timeout: 30000, httpsAgent: getProxyAgent(channelId),
@@ -182,9 +198,31 @@ async function connect(channelId, expectedYoutubeChannelId) {
       const redirectUri = `http://127.0.0.1:${server.address().port}/oauth2callback`;
       const params = new URLSearchParams({
         client_id: saved.credentials.clientId, redirect_uri: redirectUri, response_type: 'code',
-        scope: SCOPES.join(' '), access_type: 'offline', prompt: 'consent', state,
+        scope: SCOPES.join(' '), access_type: 'offline', prompt: 'select_account consent', state,
       });
-      await shell.openExternal(`https://accounts.google.com/o/oauth2/v2/auth?${params}`);
+      const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?${params}`;
+      try {
+        const { clipboard, BrowserWindow } = require('electron');
+        clipboard.writeText(authUrl);
+        console.log('Đã copy link kết nối Google OAuth vào clipboard.');
+        const wins = BrowserWindow.getAllWindows();
+        if (wins.length > 0) {
+          wins[0].webContents.executeJavaScript(`
+            (function() {
+              const container = document.getElementById('toast-container');
+              if (!container) return;
+              const toast = document.createElement('div');
+              toast.className = 'toast info';
+              toast.innerHTML = '<div class="toast-icon">ℹ️</div><div class="toast-content"><div class="toast-message">Đã copy link Google OAuth vào clipboard. Hãy dán vào trình duyệt để đăng nhập.</div></div><button class="toast-close" onclick="this.closest(\\\'.toast\\\').remove()">×</button>';
+              container.appendChild(toast);
+              setTimeout(() => {
+                toast.classList.add('fade-out');
+                setTimeout(() => toast.remove(), 300);
+              }, 5000);
+            })();
+          `).catch(console.error);
+        }
+      } catch (e) {}
     });
     const timeout = setTimeout(() => finish({ success: false, error: 'Hết thời gian chờ OAuth.' }), 5 * 60 * 1000);
   });
@@ -277,7 +315,7 @@ async function downloadFile(url, destPath, onPct, signal, concurrency = 8) {
   }
 }
 
-async function upload(channelId, video, onProgress = () => {}, signal = null) {
+async function upload(channelId, video, onProgress = () => {}, signal = null, mode = 'MANUAL') {
   // B4: Accept AbortSignal so callers can cancel mid-upload
   function checkAborted() {
     if (signal?.aborted) throw new Error('Upload đã bị hủy.');
@@ -415,13 +453,41 @@ async function upload(channelId, video, onProgress = () => {}, signal = null) {
       title: metadata.snippet.title,
       thumbnailUploaded: hasThumbnail && !thumbnailError,
       thumbnailError,
-      savedVideoPath: folders.downloadFolder ? filePath : '',
-      savedThumbnailPath: folders.downloadFolder && hasThumbnail ? thumbnailPath : '',
+      savedVideoPath: '',
+      savedThumbnailPath: '',
     };
+    const videoTitle = String(video.aiTitle || video.name || metadata.snippet.title || 'Untitled video').trim();
     const saved = load(channelId);
-    saved.uploads = { ...(saved.uploads || {}), [String(video._id)]: { youtubeVideoId: result.youtubeVideoId, youtubeUrl: result.youtubeUrl, uploadedAt: new Date().toISOString(), privacyStatus: video.youtubeUploadOptions?.privacyStatus || 'private' } };
+    saved.uploads = {
+      ...(saved.uploads || {}),
+      [String(video._id)]: {
+        videoId: String(video._id),
+        title: videoTitle,
+        youtubeVideoId: result.youtubeVideoId,
+        youtubeUrl: result.youtubeUrl,
+        uploadedAt: new Date().toISOString(),
+        privacyStatus: video.youtubeUploadOptions?.privacyStatus || requestedPrivacy || 'private',
+        mode: mode || 'MANUAL'
+      }
+    };
     save(channelId, saved);
+
+    // Tự động xóa file video và thumbnail sau khi upload hoàn tất
+    safeDeleteFile(filePath);
+    safeDeleteFile(filePath + '.incomplete');
+    safeDeleteFile(thumbnailPath);
+    safeDeleteFile(path.join(folders.downloadFolder || tempDir, `${baseName}-thumbnail.jpg`));
+    safeDeleteFile(path.join(folders.downloadFolder || tempDir, `${baseName}-thumbnail.png`));
+
     return result;
+  } catch (error) {
+    // Dọn dẹp file tạm nếu upload bị hủy hoặc phát sinh lỗi
+    safeDeleteFile(filePath);
+    safeDeleteFile(filePath + '.incomplete');
+    safeDeleteFile(thumbnailPath);
+    safeDeleteFile(path.join(folders.downloadFolder || tempDir, `${baseName}-thumbnail.jpg`));
+    safeDeleteFile(path.join(folders.downloadFolder || tempDir, `${baseName}-thumbnail.png`));
+    throw error;
   } finally { fs.rmSync(tempDir, { recursive: true, force: true }); }
 }
 
@@ -546,10 +612,30 @@ function autoStatus(channelId) {
   };
 }
 
+function uploadHistory(channelId) {
+  const data = load(channelId);
+  const uploads = data?.uploads || {};
+  const list = Object.entries(uploads).map(([id, item]) => ({
+    videoId: id,
+    title: item.title || ('Video ' + (item.youtubeVideoId || id)),
+    youtubeVideoId: item.youtubeVideoId || '',
+    youtubeUrl: item.youtubeUrl || (item.youtubeVideoId ? `https://www.youtube.com/watch?v=${item.youtubeVideoId}` : ''),
+    uploadedAt: item.uploadedAt || '',
+    privacyStatus: item.privacyStatus || 'private',
+    mode: item.mode || 'MANUAL'
+  }));
+  list.sort((a, b) => new Date(b.uploadedAt || 0) - new Date(a.uploadedAt || 0));
+  return {
+    success: true,
+    channelTitle: data?.channel?.title || '',
+    history: list
+  };
+}
+
 module.exports = {
   getProxyConfig,
   saveProxyConfig,
-  initialize, selectCredentials, connect, upload, status, disconnect, storageSettings, selectStorageFolder,
+  initialize, selectCredentials, connect, upload, status, disconnect, storageSettings, selectStorageFolder, uploadHistory,
   // auto-upload
   autoConfig, saveAutoConfig, recordAutoUpload, shouldAutoUpload, nextPublishAt, allChannelIds, autoStatus,
 };

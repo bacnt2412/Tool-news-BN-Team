@@ -16,7 +16,6 @@ export function setupYoutubeUploadListeners() {
   const channelBody = document.getElementById('youtube-channel-body');
   const status = document.getElementById('youtube-manager-status');
   const loginForm = document.getElementById('proeditor-login-form');
-  const addForm = document.getElementById('youtube-add-channel-form');
   const loginStatus = document.getElementById('proeditor-login-status');
   const videoCache = new Map();
   const localChannelState = new Map();
@@ -77,17 +76,13 @@ export function setupYoutubeUploadListeners() {
         <td><span class="youtube-badge ${channel.localYoutube?.connected ? 'connected' : ''}">${channel.localYoutube?.connected ? `Local: ${escapeHtml(channel.localYoutube.channelTitle || 'Đã kết nối')}` : channel.localYoutube?.configured ? 'Đã cài JSON, chưa OAuth' : 'Chưa cài OAuth JSON'}</span>${channel.localYoutube?.proxy?.enabled ? ' <span class="youtube-badge proxy-on" style="background:#ff9800;color:white">Proxy: Bật</span>' : ''}<div class="youtube-muted">${escapeHtml(channel.localYoutube?.projectId || '')}</div></td>
         <td>${autoBadge}</td>
         <td class="youtube-channel-actions">
-          <button class="btn-secondary youtube-videos-btn">Danh sách video</button>
-          <button class="btn-secondary youtube-json-btn">${channel.localYoutube?.configured ? 'Đổi JSON' : 'Chọn OAuth JSON'}</button>
-          ${channel.localYoutube?.connected
-            ? '<button class="btn-secondary youtube-local-disconnect-btn">Ngắt OAuth</button>'
-            : `<button class="btn-primary youtube-local-connect-btn" ${channel.localYoutube?.configured ? '' : 'disabled'}>Kết nối Google</button>`}
-          <button class="yt-auto-btn youtube-auto-btn" title="Cài đặt tự động upload">⚡ Tự động</button>
-          <button class="btn-secondary youtube-proxy-btn" title="Cài đặt Proxy">🌐 Proxy</button>
-          <button class="btn-danger youtube-remove-channel-btn">Xóa</button>
+          <button class="btn-primary youtube-videos-btn" title="Xem danh sách video">Danh sách video</button>
+          <button class="btn-secondary youtube-history-btn" title="Xem lịch sử upload của kênh">📜 Lịch sử</button>
+          <button class="btn-secondary youtube-settings-btn" title="Cài đặt kênh (OAuth, Tự động, Proxy)">⚙️ Cài đặt</button>
+          <button class="btn-ghost-danger youtube-remove-channel-btn" title="Xóa kênh khỏi danh sách">Xóa</button>
         </td>
       </tr>`;
-    }).join('') : '<tr><td colspan="6" class="youtube-empty">Chưa có kênh. Hãy thêm kênh YouTube đầu tiên.</td></tr>';
+    }).join('') : '<tr><td colspan="6" class="youtube-empty">Chưa có kênh nào trên tài khoản ProEditor của bạn.</td></tr>';
   }
 
   async function showVideos(channelId, page = 1) {
@@ -97,7 +92,11 @@ export function setupYoutubeUploadListeners() {
     const result = await api().proEditorChannelVideos(channelId, page);
     if (!result.success) { videoModalBody.textContent = result.error; return; }
     videoCache.set(channelId, result);
-    const localUploads = localChannelState.get(String(channelId))?.uploads || {};
+    
+    // Fetch latest local status so uploads map is up to date (e.g. after an upload completes)
+    const localStatus = await api().localYoutubeStatus(channelId);
+    localChannelState.set(String(channelId), localStatus || {});
+    const localUploads = localStatus?.uploads || {};
     const PRIVACY_LABELS = {
       public: 'Công khai',
       private: 'Riêng tư',
@@ -112,18 +111,29 @@ export function setupYoutubeUploadListeners() {
         const isUploaded = localData?.youtubeVideoId || video.youtubeVideoId || video.status === 'UPLOADING';
         const privacy = localData?.privacyStatus || video.typeVideoUpload || 'private';
         const privacyLabel = PRIVACY_LABELS[privacy.toLowerCase()] || privacy;
+        const isCurrentPending = pendingUpload && String(pendingUpload.video?._id) === String(video._id);
+        const currentStatus = isCurrentPending ? 'UPLOADING' : video.status;
+        const currentStatusLabel = isCurrentPending ? 'Đang upload' : statusLabel(video.status);
         const uploadBadge = isUploaded 
           ? `<div style="display:flex; flex-direction:column; gap:4px; align-items:center;">
                <span class="youtube-badge connected">Đã upload local</span>
                <span style="font-size: 11px; color: var(--gray-500);">${privacyLabel}</span>
              </div>`
-          : `<button class="btn-primary youtube-upload-now" data-video-id="${escapeHtml(video._id)}">Upload từ máy</button>`;
+          : (isCurrentPending
+              ? `<div class="yt-upload-progress">
+                   <div class="yt-upload-top">
+                     <span class="yt-upload-stage">Đang upload...</span>
+                     <button class="yt-cancel-btn" data-video-id="${escapeHtml(video._id)}" title="Hủy upload">⏹ Hủy</button>
+                   </div>
+                   <div class="yt-upload-bar"><div class="yt-upload-fill" style="width: 50%"></div></div>
+                 </div>`
+              : `<button class="btn-primary youtube-upload-now" data-video-id="${escapeHtml(video._id)}">Upload từ máy</button>`);
         return `
-        <tr><td><strong>${escapeHtml(video.name || 'Không có tiêu đề')}</strong></td>
+        <tr data-video-id="${escapeHtml(video._id)}"><td><strong>${escapeHtml(video.name || 'Không có tiêu đề')}</strong></td>
         <td>${video.created ? new Date(video.created).toLocaleString('vi-VN') : ''}</td>
-        <td><span class="youtube-badge status-${escapeHtml(video.status)}">${escapeHtml(statusLabel(video.status))}</span><div class="youtube-muted">${escapeHtml(video.statusMessage || '')}</div></td>
+        <td class="youtube-status-cell"><span class="youtube-badge status-${escapeHtml(currentStatus)}">${escapeHtml(currentStatusLabel)}</span><div class="youtube-muted">${escapeHtml(video.statusMessage || '')}</div></td>
         <td>${localData?.youtubeUrl || video.youtubeUrl ? `<a href="#" class="youtube-open-link" data-url="${escapeHtml(localData?.youtubeUrl || video.youtubeUrl)}">Mở video</a>` : '—'}</td>
-        <td>${uploadBadge}</td></tr>
+        <td class="youtube-action-cell">${uploadBadge}</td></tr>
         `;
       }).join('') : '<tr><td colspan="5" class="youtube-empty">Không có video hoàn thành ở trang này.</td></tr>'}</tbody></table></div>
       <div class="youtube-pagination"><button class="btn-secondary youtube-page" data-page="${page - 1}" ${page <= 1 ? 'disabled' : ''}>Trang trước</button><span>Trang ${page}/${result.totalPage}</span><button class="btn-secondary youtube-page" data-page="${page + 1}" ${page >= result.totalPage ? 'disabled' : ''}>Trang sau</button></div>`;
@@ -153,134 +163,383 @@ export function setupYoutubeUploadListeners() {
     }
   });
 
-  addForm.addEventListener('submit', async event => {
-    event.preventDefault();
-    const button = addForm.querySelector('button[type="submit"]');
-    button.disabled = true;
-    const result = await api().proEditorCreateChannel({
-      channelId: document.getElementById('youtube-new-channel-id').value.trim(),
-      name: document.getElementById('youtube-new-channel-name').value.trim(),
-      typeChannel: 'YOUTUBE', uploadOnly: true, configCombos: [], typeVideoUpload: document.getElementById('youtube-new-privacy').value,
-    });
-    button.disabled = false;
-    if (!result.success) return notify(result.error, 'error');
-    addForm.reset();
-    await loadChannels();
-  });
-
   channelBody.addEventListener('click', async event => {
     const channelRow = event.target.closest('.youtube-channel-row');
     const channelId = channelRow?.dataset.channelId;
-    if (event.target.closest('.youtube-auto-btn')) return openAutoModal(channelId);
-    if (event.target.closest('.youtube-proxy-btn')) return openProxyModal(channelId);
+    if (!channelId) return;
+
     if (event.target.closest('.youtube-videos-btn')) return showVideos(channelId);
-    if (event.target.closest('.youtube-json-btn')) {
-      const result = await api().localYoutubeSelectCredentials(channelId);
-      if (!result.canceled) notify(result.success ? 'Đã lưu OAuth Client JSON an toàn trên máy.' : result.error, result.success ? 'success' : 'error');
-      if (result.success) await loadChannels();
-    }
-    if (event.target.closest('.youtube-local-connect-btn')) {
-      notify('Đang chờ bạn xác nhận tài khoản Google trên trình duyệt...');
-      const youtubeChannelId = channelRow.querySelector('.youtube-muted')?.textContent || '';
-      const result = await api().localYoutubeConnect(channelId, youtubeChannelId);
-      notify(result.success ? `Đã kết nối local với ${result.channelTitle}.` : result.error, result.success ? 'success' : 'error');
-      if (result.success) await loadChannels();
-    }
-    if (event.target.closest('.youtube-local-disconnect-btn') && confirm('Ngắt OAuth lưu trên máy này?')) {
-      const result = await api().localYoutubeDisconnect(channelId);
-      result.success ? await loadChannels() : notify(result.error, 'error');
-    }
+    if (event.target.closest('.youtube-history-btn')) return openHistoryModal(channelId);
+    if (event.target.closest('.youtube-settings-btn')) return openChannelSettingsModal(channelId);
+
+    // Fallbacks
+    if (event.target.closest('.youtube-auto-btn')) return openChannelSettingsModal(channelId, 'auto');
+    if (event.target.closest('.youtube-proxy-btn')) return openChannelSettingsModal(channelId, 'proxy');
+
     if (event.target.closest('.youtube-remove-channel-btn') && confirm('Xóa kênh này khỏi ProEditor?')) {
       const result = await api().proEditorRemoveChannel(channelId);
       result.success ? await loadChannels() : notify(result.error, 'error');
     }
   });
 
-  // ── Proxy Modal ────────────────────────────────────────────────────────────
-  const proxyModal = document.getElementById('youtube-proxy-modal');
-  let proxyModalChannelId = null;
+  // ── Unified Channel Settings Modal (OAuth, Auto, Proxy) ────────────────────
+  const channelSettingsModal = document.getElementById('youtube-channel-settings-modal');
+  const chSettingsChannelName = document.getElementById('ch-settings-channel-name');
+  const chSettingsChannelId = document.getElementById('ch-settings-channel-id');
+  const chSettingsJsonBadge = document.getElementById('ch-settings-json-badge');
+  const chSettingsJsonProject = document.getElementById('ch-settings-json-project');
+  const chSettingsConnectBadge = document.getElementById('ch-settings-connect-badge');
+  const chSettingsConnectBtn = document.getElementById('ch-settings-connect-btn');
+  const chSettingsDisconnectBtn = document.getElementById('ch-settings-disconnect-btn');
+  const chSettingsSelectJsonBtn = document.getElementById('ch-settings-select-json-btn');
+  const chSettingsOauthStatus = document.getElementById('ch-settings-oauth-status');
 
-  async function openProxyModal(channelId) {
-    proxyModalChannelId = channelId;
-    const statusEl = document.getElementById('youtube-proxy-status');
-    statusEl.textContent = '';
-    statusEl.className = 'youtube-manager-status';
-    
-    const cfg = await api().localYoutubeProxyGet(channelId) || {};
-    document.getElementById('youtube-proxy-enabled').checked = !!cfg.enabled;
-    document.getElementById('youtube-proxy-type').value = cfg.type || 'http';
-    document.getElementById('youtube-proxy-host').value = cfg.host || '';
-    document.getElementById('youtube-proxy-port').value = cfg.port || '';
-    document.getElementById('youtube-proxy-user').value = cfg.user || '';
-    document.getElementById('youtube-proxy-pass').value = cfg.pass || '';
-    
-    proxyModal.style.display = 'flex';
+  const autoEnabled = document.getElementById('auto-enabled');
+  const autoPrivacy = document.getElementById('auto-privacy');
+  const autoRestMinutes = document.getElementById('auto-rest-minutes');
+  const autoMaxPerDay = document.getElementById('auto-max-per-day');
+  const autoScheduleGroup = document.getElementById('auto-schedule-group');
+  const autoScheduleSlots = document.getElementById('auto-schedule-slots');
+  const autoTodayStatus = document.getElementById('auto-today-status');
+  const autoModalStatus = document.getElementById('auto-modal-status');
+
+  const proxyEnabledEl = document.getElementById('youtube-proxy-enabled');
+  const proxyTypeEl = document.getElementById('youtube-proxy-type');
+  const proxyHostEl = document.getElementById('youtube-proxy-host');
+  const proxyPortEl = document.getElementById('youtube-proxy-port');
+  const proxyUserEl = document.getElementById('youtube-proxy-user');
+  const proxyPassEl = document.getElementById('youtube-proxy-pass');
+  const proxyStatusEl = document.getElementById('youtube-proxy-status');
+
+  let currentSettingsChannelId = null;
+  let currentSettingsYoutubeChannelId = '';
+
+  function switchChannelSettingsTab(tabName) {
+    if (!channelSettingsModal) return;
+    channelSettingsModal.querySelectorAll('.youtube-settings-tab').forEach(tab => {
+      tab.classList.toggle('active', tab.dataset.tab === tabName);
+    });
+    channelSettingsModal.querySelectorAll('.youtube-settings-pane').forEach(pane => {
+      pane.style.display = (pane.id === `ch-tab-${tabName}`) ? 'block' : 'none';
+      pane.classList.toggle('active', pane.id === `ch-tab-${tabName}`);
+    });
   }
 
-  document.getElementById('youtube-proxy-modal-close').addEventListener('click', () => { proxyModal.style.display = 'none'; });
-  proxyModal.addEventListener('click', event => { if (event.target === proxyModal) proxyModal.style.display = 'none'; });
+  channelSettingsModal?.querySelectorAll('.youtube-settings-tab').forEach(tab => {
+    tab.addEventListener('click', () => switchChannelSettingsTab(tab.dataset.tab));
+  });
 
-  document.getElementById('youtube-proxy-save-btn').addEventListener('click', async () => {
-    if (!proxyModalChannelId) return;
-    const config = {
-      enabled: document.getElementById('youtube-proxy-enabled').checked,
-      type: document.getElementById('youtube-proxy-type').value,
-      host: document.getElementById('youtube-proxy-host').value.trim(),
-      port: document.getElementById('youtube-proxy-port').value.trim(),
-      user: document.getElementById('youtube-proxy-user').value.trim(),
-      pass: document.getElementById('youtube-proxy-pass').value
-    };
-    
-    const statusEl = document.getElementById('youtube-proxy-status');
-    if (config.enabled && (!config.host || !config.port)) {
-      statusEl.textContent = 'Vui lòng nhập IP/Host và Port khi bật proxy.';
-      statusEl.className = 'youtube-manager-status error';
-      return;
+  const channelSettingsClose = document.getElementById('youtube-channel-settings-close');
+  if (channelSettingsClose) {
+    channelSettingsClose.addEventListener('click', () => {
+      if (channelSettingsModal) channelSettingsModal.style.display = 'none';
+    });
+  }
+  if (channelSettingsModal) {
+    channelSettingsModal.addEventListener('click', event => {
+      if (event.target === channelSettingsModal) channelSettingsModal.style.display = 'none';
+    });
+  }
+
+  // 1. Google OAuth Tab Helpers & Listeners
+  async function refreshOAuthTabStatus(channelId) {
+    if (chSettingsOauthStatus) {
+      chSettingsOauthStatus.textContent = '';
+      chSettingsOauthStatus.className = 'youtube-manager-status';
     }
-    
-    const result = await api().localYoutubeProxySave(proxyModalChannelId, config);
-    statusEl.textContent = result.success ? 'Đã lưu cài đặt Proxy.' : (result.error || 'Lỗi lưu proxy.');
-    statusEl.className = `youtube-manager-status ${result.success ? 'success' : 'error'}`;
+    const localStatus = await api().localYoutubeStatus(channelId);
+    localChannelState.set(String(channelId), localStatus || {});
+
+    if (localStatus?.configured) {
+      chSettingsJsonBadge.className = 'youtube-badge connected';
+      chSettingsJsonBadge.textContent = 'Đã cài đặt';
+      chSettingsJsonProject.textContent = `Project: ${localStatus.projectId || 'N/A'}`;
+      chSettingsConnectBtn.disabled = false;
+    } else {
+      chSettingsJsonBadge.className = 'youtube-badge';
+      chSettingsJsonBadge.textContent = 'Chưa cài đặt';
+      chSettingsJsonProject.textContent = '';
+      chSettingsConnectBtn.disabled = true;
+    }
+
+    if (localStatus?.connected) {
+      chSettingsConnectBadge.className = 'youtube-badge connected';
+      chSettingsConnectBadge.textContent = `Đã kết nối: ${localStatus.channelTitle || ''}`;
+      chSettingsConnectBtn.style.display = 'none';
+      chSettingsDisconnectBtn.style.display = 'inline-flex';
+    } else {
+      chSettingsConnectBadge.className = 'youtube-badge';
+      chSettingsConnectBadge.textContent = 'Chưa kết nối';
+      chSettingsConnectBtn.style.display = 'inline-flex';
+      chSettingsDisconnectBtn.style.display = 'none';
+    }
+  }
+
+  chSettingsSelectJsonBtn?.addEventListener('click', async () => {
+    if (!currentSettingsChannelId) return;
+    const result = await api().localYoutubeSelectCredentials(currentSettingsChannelId);
+    if (!result.canceled) {
+      notify(result.success ? 'Đã lưu OAuth Client JSON an toàn trên máy.' : result.error, result.success ? 'success' : 'error');
+      if (chSettingsOauthStatus) {
+        chSettingsOauthStatus.textContent = result.success ? 'Đã lưu OAuth Client JSON.' : result.error;
+        chSettingsOauthStatus.className = `youtube-manager-status ${result.success ? 'success' : 'error'}`;
+      }
+    }
     if (result.success) {
-      setTimeout(() => { proxyModal.style.display = 'none'; }, 800);
+      await refreshOAuthTabStatus(currentSettingsChannelId);
       await loadChannels();
     }
   });
 
-  document.getElementById('youtube-proxy-test-btn').addEventListener('click', async () => {
-    const statusEl = document.getElementById('youtube-proxy-status');
-    const btn = document.getElementById('youtube-proxy-test-btn');
+  chSettingsConnectBtn?.addEventListener('click', async () => {
+    if (!currentSettingsChannelId) return;
+    notify('Đang chờ bạn xác nhận tài khoản Google trên trình duyệt...');
+    if (chSettingsOauthStatus) {
+      chSettingsOauthStatus.textContent = 'Đang mở trình duyệt để xác thực Google...';
+      chSettingsOauthStatus.className = 'youtube-manager-status';
+    }
+    const result = await api().localYoutubeConnect(currentSettingsChannelId, currentSettingsYoutubeChannelId);
+    notify(result.success ? `Đã kết nối local với ${result.channelTitle}.` : result.error, result.success ? 'success' : 'error');
+    if (chSettingsOauthStatus) {
+      chSettingsOauthStatus.textContent = result.success ? `Đã kết nối thành công với: ${result.channelTitle}` : (result.error || 'Kết nối thất bại.');
+      chSettingsOauthStatus.className = `youtube-manager-status ${result.success ? 'success' : 'error'}`;
+    }
+    if (result.success) {
+      await refreshOAuthTabStatus(currentSettingsChannelId);
+      await loadChannels();
+    }
+  });
+
+  chSettingsDisconnectBtn?.addEventListener('click', async () => {
+    if (!currentSettingsChannelId) return;
+    if (!confirm('Ngắt OAuth lưu trên máy này?')) return;
+    const result = await api().localYoutubeDisconnect(currentSettingsChannelId);
+    if (result.success) {
+      notify('Đã ngắt kết nối OAuth thành công.', 'success');
+      if (chSettingsOauthStatus) {
+        chSettingsOauthStatus.textContent = 'Đã ngắt kết nối OAuth.';
+        chSettingsOauthStatus.className = 'youtube-manager-status success';
+      }
+      await refreshOAuthTabStatus(currentSettingsChannelId);
+      await loadChannels();
+    } else {
+      notify(result.error, 'error');
+      if (chSettingsOauthStatus) {
+        chSettingsOauthStatus.textContent = result.error;
+        chSettingsOauthStatus.className = 'youtube-manager-status error';
+      }
+    }
+  });
+
+  // 2. Auto-Upload Tab Helpers & Listeners
+  function getSlotTime(slotDiv) {
+    return slotDiv.querySelector('.auto-time-input')?.value || '';
+  }
+
+  function renderScheduleSlots(count, savedTimes = []) {
+    if (!autoScheduleSlots) return;
+    autoScheduleSlots.innerHTML = Array.from({ length: count }, (_, i) => `
+      <div class="auto-slot-input" data-slot="${i}">
+        <label>Video ${i + 1}</label>
+        <input type="text" inputmode="numeric" class="auto-time-input settings-input"
+               placeholder="HH:MM" maxlength="5" autocomplete="off"
+               value="${savedTimes[i] || ''}" />
+      </div>`).join('');
+
+    autoScheduleSlots.querySelectorAll('.auto-time-input').forEach(el => {
+      el.addEventListener('input', () => {
+        const pos = el.selectionStart;
+        let v = el.value.replace(/[^0-9]/g, '');
+        if (v.length > 4) v = v.slice(0, 4);
+        if (v.length > 2) v = v.slice(0, 2) + ':' + v.slice(2);
+        el.value = v;
+        if (v.length === 3 && pos === 2) el.setSelectionRange(3, 3);
+      });
+      el.addEventListener('blur', () => {
+        const m = el.value.match(/^([0-9]{1,2}):([0-5][0-9])$/);
+        if (m) {
+          const h = parseInt(m[1]);
+          if (h >= 0 && h <= 23) { el.value = String(h).padStart(2, '0') + ':' + m[2]; return; }
+        }
+        if (el.value) el.value = '';
+      });
+    });
+  }
+
+  function syncSlotsToMax() {
+    const n = Math.max(1, Math.min(50, parseInt(autoMaxPerDay?.value) || 5));
+    const savedTimes = autoScheduleSlots ? [...autoScheduleSlots.querySelectorAll('.auto-time-input')].map(el => el.value) : [];
+    renderScheduleSlots(n, savedTimes);
+  }
+
+  autoPrivacy?.addEventListener('change', () => {
+    if (autoScheduleGroup) autoScheduleGroup.style.display = autoPrivacy.value === 'schedule' ? 'block' : 'none';
+  });
+  autoMaxPerDay?.addEventListener('change', () => {
+    if (autoPrivacy?.value === 'schedule') syncSlotsToMax();
+  });
+
+  document.getElementById('auto-modal-save')?.addEventListener('click', async () => {
+    if (!currentSettingsChannelId) return;
+    const scheduledTimes = autoPrivacy.value === 'schedule'
+      ? [...autoScheduleSlots.querySelectorAll('.auto-slot-input')].map(div => getSlotTime(div)).filter(Boolean)
+      : [];
     const config = {
-      type: document.getElementById('youtube-proxy-type').value,
-      host: document.getElementById('youtube-proxy-host').value.trim(),
-      port: document.getElementById('youtube-proxy-port').value.trim(),
-      user: document.getElementById('youtube-proxy-user').value.trim(),
-      pass: document.getElementById('youtube-proxy-pass').value
+      enabled: autoEnabled.checked,
+      privacyStatus: autoPrivacy.value,
+      restMinutes: parseInt(autoRestMinutes.value) || 30,
+      maxPerDay: parseInt(autoMaxPerDay.value) || 5,
+      scheduledTimes,
     };
-    
-    if (!config.host || !config.port) {
-      statusEl.textContent = 'Vui lòng nhập IP/Host và Port trước khi kiểm tra.';
-      statusEl.className = 'youtube-manager-status error';
+    if (config.privacyStatus === 'schedule' && scheduledTimes.length < config.maxPerDay) {
+      if (autoModalStatus) {
+        autoModalStatus.textContent = `Cần đủ ${config.maxPerDay} mốc giờ cho chế độ Hẹn giờ đăng.`;
+        autoModalStatus.className = 'youtube-manager-status error';
+      }
       return;
     }
-    
+    const result = await api().localYoutubeAutoSave(currentSettingsChannelId, config);
+    if (autoModalStatus) {
+      autoModalStatus.textContent = result.success ? 'Đã lưu cài đặt tự động upload.' : (result.error || 'Lỗi lưu cài đặt.');
+      autoModalStatus.className = `youtube-manager-status ${result.success ? 'success' : 'error'}`;
+    }
+    if (result.success) {
+      notify('Đã lưu cấu hình tự động upload.', 'success');
+      await loadChannels();
+    }
+  });
+
+  // 3. Proxy Tab Listeners
+  document.getElementById('youtube-proxy-save-btn')?.addEventListener('click', async () => {
+    if (!currentSettingsChannelId) return;
+    const config = {
+      enabled: proxyEnabledEl?.checked || false,
+      type: proxyTypeEl?.value || 'http',
+      host: proxyHostEl?.value.trim() || '',
+      port: proxyPortEl?.value.trim() || '',
+      user: proxyUserEl?.value.trim() || '',
+      pass: proxyPassEl?.value || ''
+    };
+
+    if (config.enabled && (!config.host || !config.port)) {
+      if (proxyStatusEl) {
+        proxyStatusEl.textContent = 'Vui lòng nhập IP/Host và Port khi bật proxy.';
+        proxyStatusEl.className = 'youtube-manager-status error';
+      }
+      return;
+    }
+
+    const result = await api().localYoutubeProxySave(currentSettingsChannelId, config);
+    if (proxyStatusEl) {
+      proxyStatusEl.textContent = result.success ? 'Đã lưu cài đặt Proxy.' : (result.error || 'Lỗi lưu proxy.');
+      proxyStatusEl.className = `youtube-manager-status ${result.success ? 'success' : 'error'}`;
+    }
+    if (result.success) {
+      notify('Đã lưu cấu hình Proxy.', 'success');
+      await loadChannels();
+    }
+  });
+
+  document.getElementById('youtube-proxy-test-btn')?.addEventListener('click', async () => {
+    const btn = document.getElementById('youtube-proxy-test-btn');
+    const config = {
+      type: proxyTypeEl?.value || 'http',
+      host: proxyHostEl?.value.trim() || '',
+      port: proxyPortEl?.value.trim() || '',
+      user: proxyUserEl?.value.trim() || '',
+      pass: proxyPassEl?.value || ''
+    };
+
+    if (!config.host || !config.port) {
+      if (proxyStatusEl) {
+        proxyStatusEl.textContent = 'Vui lòng nhập IP/Host và Port trước khi kiểm tra.';
+        proxyStatusEl.className = 'youtube-manager-status error';
+      }
+      return;
+    }
+
     btn.disabled = true;
     btn.textContent = 'Đang kiểm tra...';
-    statusEl.textContent = 'Đang gọi thử tới api.ipify.org qua proxy...';
-    statusEl.className = 'youtube-manager-status';
-    
+    if (proxyStatusEl) {
+      proxyStatusEl.textContent = 'Đang gọi thử tới api.ipify.org qua proxy...';
+      proxyStatusEl.className = 'youtube-manager-status';
+    }
+
     const result = await api().localYoutubeProxyTest(config);
     btn.disabled = false;
     btn.textContent = 'Kiểm tra Proxy';
-    
-    if (result.success) {
-      statusEl.textContent = `✅ Proxy hoạt động. IP trả về: ${result.ip}`;
-      statusEl.className = 'youtube-manager-status success';
-    } else {
-      statusEl.textContent = `❌ Lỗi: ${result.error}`;
-      statusEl.className = 'youtube-manager-status error';
+
+    if (proxyStatusEl) {
+      if (result.success) {
+        proxyStatusEl.textContent = `✅ Proxy hoạt động. IP trả về: ${result.ip}`;
+        proxyStatusEl.className = 'youtube-manager-status success';
+      } else {
+        proxyStatusEl.textContent = `❌ Lỗi: ${result.error}`;
+        proxyStatusEl.className = 'youtube-manager-status error';
+      }
     }
   });
+
+  // Open Unified Channel Settings Modal
+  async function openChannelSettingsModal(channelId, initialTab = 'oauth') {
+    if (!channelSettingsModal) return;
+    currentSettingsChannelId = channelId;
+
+    const row = channelBody.querySelector(`[data-channel-id="${channelId}"]`);
+    const channelName = row?.querySelector('strong')?.textContent || channelId;
+    currentSettingsYoutubeChannelId = row?.querySelector('.youtube-muted')?.textContent || '';
+
+    if (chSettingsChannelName) chSettingsChannelName.textContent = channelName;
+    if (chSettingsChannelId) chSettingsChannelId.textContent = currentSettingsYoutubeChannelId ? `YouTube ID: ${currentSettingsYoutubeChannelId}` : '';
+
+    // Switch tab first so user sees it right away
+    switchChannelSettingsTab(initialTab);
+    channelSettingsModal.style.display = 'flex';
+
+    // 1. Tab OAuth
+    await refreshOAuthTabStatus(channelId);
+
+    // 2. Tab Auto
+    if (autoModalStatus) {
+      autoModalStatus.textContent = '';
+      autoModalStatus.className = 'youtube-manager-status';
+    }
+    const autoCfg = await api().localYoutubeAutoGet(channelId).catch(() => ({})) || {};
+    if (autoEnabled) autoEnabled.checked = !!autoCfg.enabled;
+    if (autoPrivacy) autoPrivacy.value = autoCfg.privacyStatus || 'private';
+    if (autoRestMinutes) autoRestMinutes.value = autoCfg.restMinutes ?? 30;
+    if (autoMaxPerDay) autoMaxPerDay.value = autoCfg.maxPerDay ?? 5;
+    if (autoScheduleGroup) autoScheduleGroup.style.display = autoCfg.privacyStatus === 'schedule' ? 'block' : 'none';
+    renderScheduleSlots(autoCfg.maxPerDay || 5, autoCfg.scheduledTimes || []);
+    if (autoCfg.enabled !== undefined && autoTodayStatus) {
+      const lastAtStr = autoCfg.lastAt ? new Date(autoCfg.lastAt).toLocaleTimeString('vi-VN') : 'chưa có';
+      autoTodayStatus.style.display = 'block';
+      autoTodayStatus.textContent = `Hôm nay đã upload: ${autoCfg.todayCount || 0}/${autoCfg.maxPerDay || 5} video. Lần cuối: ${lastAtStr}. ${autoCfg.enabled ? '▶ Đang hoạt động.' : '⏸ Tự động upload chưa bật.'}`;
+    } else if (autoTodayStatus) {
+      autoTodayStatus.style.display = 'none';
+    }
+
+    // 3. Tab Proxy
+    if (proxyStatusEl) {
+      proxyStatusEl.textContent = '';
+      proxyStatusEl.className = 'youtube-manager-status';
+    }
+    const proxyCfg = await api().localYoutubeProxyGet(channelId).catch(() => ({})) || {};
+    if (proxyEnabledEl) proxyEnabledEl.checked = !!proxyCfg.enabled;
+    if (proxyTypeEl) proxyTypeEl.value = proxyCfg.type || 'http';
+    if (proxyHostEl) proxyHostEl.value = proxyCfg.host || '';
+    if (proxyPortEl) proxyPortEl.value = proxyCfg.port || '';
+    if (proxyUserEl) proxyUserEl.value = proxyCfg.user || '';
+    if (proxyPassEl) proxyPassEl.value = proxyCfg.pass || '';
+  }
+
+  function openProxyModal(channelId) {
+    return openChannelSettingsModal(channelId, 'proxy');
+  }
+
+  function openAutoModal(channelId) {
+    return openChannelSettingsModal(channelId, 'auto');
+  }
 
   function closeVideoModal() {
     videoModal.style.display = 'none';
@@ -296,6 +555,14 @@ export function setupYoutubeUploadListeners() {
     if (pageButton) return showVideos(channelId, Number(pageButton.dataset.page));
     const openLink = event.target.closest('.youtube-open-link');
     if (openLink) return api().openExternal(openLink.dataset.url);
+    // Cancel upload button embedded in row progress bar
+    const cancelBtn = event.target.closest('.yt-cancel-btn');
+    if (cancelBtn) {
+      cancelBtn.disabled = true;
+      cancelBtn.textContent = 'Đang hủy...';
+      await api().localYoutubeCancelUpload();
+      return;
+    }
     const uploadButton = event.target.closest('.youtube-upload-now');
     if (!uploadButton) return;
     const pageData = videoCache.get(channelId);
@@ -322,6 +589,54 @@ export function setupYoutubeUploadListeners() {
   document.getElementById('youtube-publish-modal-close').addEventListener('click', closePublishModal);
   document.getElementById('youtube-publish-cancel').addEventListener('click', closePublishModal);
   publishModal.addEventListener('click', event => { if (event.target === publishModal) closePublishModal(); });
+
+  // Update inline progress on the specific video row that is being uploaded.
+  function updateRowProgress(videoId, stage, percent) {
+    const row = videoModalBody.querySelector(`tr[data-video-id="${videoId}"]`);
+    if (!row) return;
+
+    // Update status badge in "Trạng thái" column
+    const statusCell = row.querySelector('.youtube-status-cell');
+    if (statusCell) {
+      const badge = statusCell.querySelector('.youtube-badge');
+      if (badge && !badge.classList.contains('status-UPLOADING')) {
+        badge.className = 'youtube-badge status-UPLOADING';
+        badge.textContent = 'Đang upload';
+      }
+    }
+
+    const cell = row.querySelector('.youtube-action-cell');
+    if (!cell) return;
+    const labels = {
+      download: '↓ Tải video',
+      upload: '↑ Upload YT',
+      'thumbnail-download': '↓ Thumbnail',
+      'thumbnail-upload': '↑ Thumbnail',
+    };
+    const pct = Math.round(percent || 0);
+    const label = labels[stage] || 'Đang xử lý';
+
+    // First call: build DOM structure once so elements stay mounted
+    let progressDiv = cell.querySelector('.yt-upload-progress');
+    if (!progressDiv) {
+      cell.innerHTML = `
+        <div class="yt-upload-progress">
+          <div class="yt-upload-top">
+            <span class="yt-upload-stage"></span>
+            <button class="yt-cancel-btn" data-video-id="${videoId}" title="Hủy upload">⏹ Hủy</button>
+          </div>
+          <div class="yt-upload-bar"><div class="yt-upload-fill"></div></div>
+        </div>`;
+      progressDiv = cell.querySelector('.yt-upload-progress');
+    }
+
+    // Subsequent calls: only update text & width so cancel button isn't recreated
+    const stageEl = progressDiv.querySelector('.yt-upload-stage');
+    if (stageEl) stageEl.textContent = `${label}: ${pct}%`;
+    const fillEl = progressDiv.querySelector('.yt-upload-fill');
+    if (fillEl) fillEl.style.width = `${pct}%`;
+  }
+
   document.getElementById('youtube-publish-confirm').addEventListener('click', async event => {
     if (!pendingUpload) return;
     let publishAt = '';
@@ -339,13 +654,13 @@ export function setupYoutubeUploadListeners() {
     button.textContent = 'Đang upload...';
     const { channelId, video, page } = pendingUpload;
     closePublishModal();
+    // Immediate visual feedback on the video row
+    updateRowProgress(String(video._id), 'download', 0);
     const uploadVideo = { ...video, youtubeUploadOptions: { privacyStatus: publishPrivacy.value, publishAt } };
     const result = await api().localYoutubeUpload(channelId, uploadVideo);
-    const savedFiles = [result.savedVideoPath, result.savedThumbnailPath].filter(Boolean);
-    const savedSuffix = savedFiles.length ? ` Đã lưu file tại: ${savedFiles.join(' | ')}` : '';
     const successMessage = result.thumbnailError
       ? `Video đã upload với tiêu đề AI nhưng thumbnail lỗi: ${result.thumbnailError}`
-      : `Đã upload video, tiêu đề AI và thumbnail AI: ${result.youtubeUrl}.${savedSuffix}`;
+      : `Đã upload thành công lên YouTube: ${result.youtubeUrl} (Đã tự động dọn dẹp video & thumbnail tạm)`;
     notify(result.success ? successMessage : result.error, result.success ? (result.thumbnailError ? 'warning' : 'success') : 'error');
     button.disabled = false;
     button.textContent = 'Bắt đầu upload';
@@ -355,13 +670,18 @@ export function setupYoutubeUploadListeners() {
 
   api().onLocalYoutubeUploadProgress(data => {
     if (data.stage === 'thumbnail-warning') return notify(data.message, 'warning');
-    const labels = {
-      download: 'Đang tải video về máy',
-      upload: 'Đang upload video từ máy lên YouTube',
-      'thumbnail-download': 'Đang tải thumbnail AI về máy',
-      'thumbnail-upload': 'Đang upload thumbnail AI lên YouTube',
-    };
-    notify(`${labels[data.stage] || 'Đang xử lý'}: ${Math.round(data.percent || 0)}%`);
+    const pct = Math.round(data.percent || 0);
+    if (data.videoId) {
+      updateRowProgress(String(data.videoId), data.stage, pct);
+    } else {
+      const labels = {
+        download: 'Đang tải video về máy',
+        upload: 'Đang upload video từ máy lên YouTube',
+        'thumbnail-download': 'Đang tải thumbnail AI về máy',
+        'thumbnail-upload': 'Đang upload thumbnail AI lên YouTube',
+      };
+      notify(`${labels[data.stage] || 'Đang xử lý'}: ${pct}%`);
+    }
   });
 
   document.getElementById('youtube-auto-log-btn').addEventListener('click', openAutoLogModal);
@@ -380,120 +700,6 @@ export function setupYoutubeUploadListeners() {
   }
 
   document.getElementById('youtube-select-download-folder').addEventListener('click', chooseStorageFolder);
-
-  // ── Auto-upload modal ─────────────────────────────────────────────────────
-  const autoModal = document.getElementById('youtube-auto-modal');
-  const autoEnabled = document.getElementById('auto-enabled');
-  const autoPrivacy = document.getElementById('auto-privacy');
-  const autoRestMinutes = document.getElementById('auto-rest-minutes');
-  const autoMaxPerDay = document.getElementById('auto-max-per-day');
-  const autoScheduleGroup = document.getElementById('auto-schedule-group');
-  const autoScheduleSlots = document.getElementById('auto-schedule-slots');
-  const autoTodayStatus = document.getElementById('auto-today-status');
-  const autoModalStatus = document.getElementById('auto-modal-status');
-  let autoModalChannelId = null;
-
-  function getSlotTime(slotDiv) {
-    return slotDiv.querySelector('.auto-time-input')?.value || '';
-  }
-
-  function renderScheduleSlots(count, savedTimes = []) {
-    autoScheduleSlots.innerHTML = Array.from({ length: count }, (_, i) => `
-      <div class="auto-slot-input" data-slot="${i}">
-        <label>Video ${i + 1}</label>
-        <input type="text" inputmode="numeric" class="auto-time-input settings-input"
-               placeholder="HH:MM" maxlength="5" autocomplete="off"
-               value="${savedTimes[i] || ''}" />
-      </div>`).join('');
-
-    autoScheduleSlots.querySelectorAll('.auto-time-input').forEach(el => {
-      // Auto-insert colon after 2 digits
-      el.addEventListener('input', () => {
-        const pos = el.selectionStart;
-        let v = el.value.replace(/[^0-9]/g, '');
-        if (v.length > 4) v = v.slice(0, 4);
-        if (v.length > 2) v = v.slice(0, 2) + ':' + v.slice(2);
-        el.value = v;
-        // Restore cursor after colon insertion
-        if (v.length === 3 && pos === 2) el.setSelectionRange(3, 3);
-      });
-      // Validate + normalize on blur
-      el.addEventListener('blur', () => {
-        const m = el.value.match(/^([0-9]{1,2}):([0-5][0-9])$/);
-        if (m) {
-          const h = parseInt(m[1]);
-          if (h >= 0 && h <= 23) { el.value = String(h).padStart(2, '0') + ':' + m[2]; return; }
-        }
-        if (el.value) el.value = ''; // clear invalid
-      });
-    });
-  }
-
-  function syncSlotsToMax() {
-    const n = Math.max(1, Math.min(50, parseInt(autoMaxPerDay.value) || 5));
-    const savedTimes = [...autoScheduleSlots.querySelectorAll('.auto-time-input')].map(el => el.value);
-    renderScheduleSlots(n, savedTimes);
-  }
-
-  autoPrivacy.addEventListener('change', () => {
-    autoScheduleGroup.style.display = autoPrivacy.value === 'schedule' ? 'block' : 'none';
-  });
-  autoMaxPerDay.addEventListener('change', () => {
-    if (autoPrivacy.value === 'schedule') syncSlotsToMax();
-  });
-
-  async function openAutoModal(channelId) {
-    autoModalChannelId = channelId;
-    autoModalStatus.textContent = '';
-    autoModalStatus.className = 'youtube-manager-status';
-    const cfg = await api().localYoutubeAutoGet(channelId);
-    autoEnabled.checked = !!cfg.enabled;
-    autoPrivacy.value = cfg.privacyStatus || 'private';
-    autoRestMinutes.value = cfg.restMinutes ?? 30;
-    autoMaxPerDay.value = cfg.maxPerDay ?? 5;
-    autoScheduleGroup.style.display = cfg.privacyStatus === 'schedule' ? 'block' : 'none';
-    renderScheduleSlots(cfg.maxPerDay || 5, cfg.scheduledTimes || []);
-    if (cfg.enabled !== undefined) {
-      const lastAtStr = cfg.lastAt ? new Date(cfg.lastAt).toLocaleTimeString('vi-VN') : 'chưa có';
-      autoTodayStatus.style.display = 'block';
-      autoTodayStatus.textContent = `Hôm nay đã upload: ${cfg.todayCount || 0}/${cfg.maxPerDay || 5} video. Lần cuối: ${lastAtStr}. ${cfg.enabled ? '▶ Đang hoạt động.' : '⏸ Tự động upload chưa bật.'}`;
-    } else {
-      autoTodayStatus.style.display = 'none';
-    }
-    const row = channelBody.querySelector(`[data-channel-id="${channelId}"]`);
-    const channelName = row?.querySelector('strong')?.textContent || channelId;
-    document.getElementById('auto-modal-channel-name').textContent = channelName;
-    autoModal.style.display = 'flex';
-  }
-
-  document.getElementById('youtube-auto-modal-close').addEventListener('click', () => { autoModal.style.display = 'none'; });
-  document.getElementById('auto-modal-cancel').addEventListener('click', () => { autoModal.style.display = 'none'; });
-
-  document.getElementById('auto-modal-save').addEventListener('click', async () => {
-    if (!autoModalChannelId) return;
-    const scheduledTimes = autoPrivacy.value === 'schedule'
-      ? [...autoScheduleSlots.querySelectorAll('.auto-slot-input')].map(div => getSlotTime(div)).filter(Boolean)
-      : [];
-    const config = {
-      enabled: autoEnabled.checked,
-      privacyStatus: autoPrivacy.value,
-      restMinutes: parseInt(autoRestMinutes.value) || 30,
-      maxPerDay: parseInt(autoMaxPerDay.value) || 5,
-      scheduledTimes,
-    };
-    if (config.privacyStatus === 'schedule' && scheduledTimes.length < config.maxPerDay) {
-      autoModalStatus.textContent = `Cần đủ ${config.maxPerDay} mốc giờ cho chế độ Hẹn giờ đăng.`;
-      autoModalStatus.className = 'youtube-manager-status error';
-      return;
-    }
-    const result = await api().localYoutubeAutoSave(autoModalChannelId, config);
-    autoModalStatus.textContent = result.success ? 'Đã lưu cài đặt tự động upload.' : (result.error || 'Lỗi lưu cài đặt.');
-    autoModalStatus.className = `youtube-manager-status ${result.success ? 'success' : 'error'}`;
-    if (result.success) {
-      setTimeout(() => { autoModal.style.display = 'none'; }, 800);
-      await loadChannels();
-    }
-  });
 
   // ── Auto log modal ────────────────────────────────────────────────────────
   const autoLogModal = document.getElementById('youtube-auto-log-modal');
@@ -611,6 +817,156 @@ export function setupYoutubeUploadListeners() {
       }
     }
   });
+
+  // ── Upload History Modal ───────────────────────────────────────────────────
+  const historyModal = document.getElementById('youtube-history-modal');
+  const historyTitle = document.getElementById('youtube-history-title');
+  const historySubtitle = document.getElementById('youtube-history-subtitle');
+  const historyBody = document.getElementById('youtube-history-body');
+  const historyClose = document.getElementById('youtube-history-close');
+
+  if (historyClose) {
+    historyClose.addEventListener('click', () => { historyModal.style.display = 'none'; });
+  }
+  if (historyModal) {
+    historyModal.addEventListener('click', event => {
+      if (event.target === historyModal) historyModal.style.display = 'none';
+    });
+  }
+
+  async function openHistoryModal(channelId) {
+    if (!historyModal) return;
+    historyModal.style.display = 'flex';
+    historyBody.innerHTML = '<div class="youtube-loading">Đang tải lịch sử upload...</div>';
+
+    const channelRow = channelBody.querySelector(`tr[data-channel-id="${channelId}"]`);
+    const channelName = channelRow?.querySelector('strong')?.textContent || 'Kênh YouTube';
+
+    historyTitle.textContent = `📜 Lịch sử Upload — ${channelName}`;
+    historySubtitle.textContent = 'Đang tải dữ liệu...';
+
+    const result = await api().localYoutubeUploadHistory(channelId);
+    if (!result.success) {
+      historyBody.innerHTML = `<div class="auto-log-empty" style="color:var(--error);">${escapeHtml(result.error || 'Không tải được lịch sử')}</div>`;
+      historySubtitle.textContent = '';
+      return;
+    }
+
+    const items = result.history || [];
+    if (!items.length) {
+      historySubtitle.textContent = 'Tổng cộng: 0 video đã upload';
+      historyBody.innerHTML = `
+        <div class="youtube-history-empty">
+          <div style="font-size:36px;margin-bottom:8px;">📭</div>
+          <p>Kênh này chưa có lịch sử upload video nào.</p>
+        </div>`;
+      return;
+    }
+
+    historySubtitle.textContent = `Tổng cộng: ${items.length} video đã upload`;
+
+    const groups = new Map();
+    const todayStr = new Date().toDateString();
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toDateString();
+
+    for (const item of items) {
+      const dt = item.uploadedAt ? new Date(item.uploadedAt) : null;
+      let dateLabel = 'Chưa xác định ngày';
+      if (dt && !isNaN(dt.getTime())) {
+        const dtDateStr = dt.toDateString();
+        const dateFormatted = `${String(dt.getDate()).padStart(2, '0')}/${String(dt.getMonth() + 1).padStart(2, '0')}/${dt.getFullYear()}`;
+        if (dtDateStr === todayStr) {
+          dateLabel = `Hôm nay (${dateFormatted})`;
+        } else if (dtDateStr === yesterdayStr) {
+          dateLabel = `Hôm qua (${dateFormatted})`;
+        } else {
+          dateLabel = `Ngày ${dateFormatted}`;
+        }
+      }
+      if (!groups.has(dateLabel)) {
+        groups.set(dateLabel, []);
+      }
+      groups.get(dateLabel).push(item);
+    }
+
+    const PRIVACY_LABELS = {
+      public: 'Công khai',
+      private: 'Riêng tư',
+      unlisted: 'Không công khai',
+      schedule: 'Hẹn giờ'
+    };
+
+    let html = '';
+    for (const [dateLabel, groupItems] of groups.entries()) {
+      html += `
+        <div class="youtube-history-group">
+          <div class="youtube-history-date-header">
+            <span>📅 ${escapeHtml(dateLabel)}</span>
+            <span class="youtube-history-date-count">${groupItems.length} video</span>
+          </div>
+          <div class="youtube-history-list">
+            ${groupItems.map(item => {
+              const dt = item.uploadedAt ? new Date(item.uploadedAt) : null;
+              const timeStr = dt && !isNaN(dt.getTime())
+                ? `${String(dt.getHours()).padStart(2, '0')}:${String(dt.getMinutes()).padStart(2, '0')}`
+                : '--:--';
+              const modeBadge = item.mode === 'AUTO'
+                ? '<span class="youtube-badge" style="background:#dcfce7;color:#15803d;border:1px solid #86efac;font-size:10px;">⚡ Tự động</span>'
+                : '<span class="youtube-badge" style="background:#e0f2fe;color:#0369a1;border:1px solid #7dd3fc;font-size:10px;">👤 Thủ công</span>';
+              const privacy = String(item.privacyStatus || 'private').toLowerCase();
+              const privacyText = PRIVACY_LABELS[privacy] || privacy;
+              return `
+                <div class="youtube-history-item">
+                  <div class="youtube-history-time-col">
+                    <span class="youtube-history-time">${timeStr}</span>
+                    ${modeBadge}
+                  </div>
+                  <div class="youtube-history-info">
+                    <div class="youtube-history-video-title" title="${escapeHtml(item.title)}">${escapeHtml(item.title)}</div>
+                    <div class="youtube-history-meta">
+                      <span class="youtube-badge status-UPLOAD_SUCCESS" style="font-size:10px;padding:1px 6px;">Đã upload</span>
+                      <span style="font-size:11px;color:var(--gray-500);">${escapeHtml(privacyText)}</span>
+                      ${item.youtubeVideoId ? `<span class="youtube-muted" style="font-size:11px;">ID: ${escapeHtml(item.youtubeVideoId)}</span>` : ''}
+                    </div>
+                  </div>
+                  <div class="youtube-history-actions">
+                    ${item.youtubeUrl ? `
+                      <button class="btn-action btn-view youtube-open-history-link" data-url="${escapeHtml(item.youtubeUrl)}" title="Mở video trên YouTube">🔗 Mở video</button>
+                      <button class="btn-action btn-copy youtube-copy-history-link" data-url="${escapeHtml(item.youtubeUrl)}" title="Sao chép link YouTube">📋 Copy link</button>
+                    ` : '—'}
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    historyBody.innerHTML = html;
+
+    historyBody.querySelectorAll('.youtube-open-history-link').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const url = btn.dataset.url;
+        if (url) api().openExternal(url);
+      });
+    });
+
+    historyBody.querySelectorAll('.youtube-copy-history-link').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const url = btn.dataset.url;
+        if (!url) return;
+        try {
+          await navigator.clipboard.writeText(url);
+          notify('Đã sao chép link YouTube vào clipboard!', 'success');
+        } catch (_) {
+          notify(url, 'info');
+        }
+      });
+    });
+  }
 
   api().proEditorSession().then(session => {
     setAuthenticated(session.authenticated, session.user);
