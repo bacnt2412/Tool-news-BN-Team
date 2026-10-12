@@ -454,8 +454,20 @@ https://www.youtube.com/watch?v=..."
                 </section>
                 <section id="youtube-channel-manager" style="display:none">
                     <div class="youtube-manager-header">
-                        <div><h2>Quản lý kênh YouTube</h2><span id="proeditor-current-user" class="youtube-muted"></span></div>
-                        <div class="youtube-actions"><button id="youtube-auto-log-btn" class="btn-secondary">&#x1F4CB; Nh&#x1eadt; k&#x00fd;</button><button id="youtube-refresh-btn" class="btn-secondary">Làm mới</button><button id="proeditor-logout-btn" class="btn-secondary">Đăng xuất</button></div>
+                        <div class="youtube-header-title-wrap">
+                            <h2>Quản lý kênh YouTube</h2>
+                            <span id="proeditor-current-user" class="youtube-muted"></span>
+                            <span id="youtube-auto-loop-badge" class="youtube-badge">Auto: Chưa chạy</span>
+                        </div>
+                        <div class="youtube-actions">
+                            <button id="youtube-auto-toggle-btn" class="btn-auto-toggle state-stopped" type="button" title="Bật/Tắt luồng tự động upload cho tất cả các kênh">
+                                <span class="btn-auto-dot"></span>
+                                <span id="youtube-auto-toggle-text">Bắt đầu Auto Upload</span>
+                            </button>
+                            <button id="youtube-auto-log-btn" class="btn-secondary">&#x1F4CB; Nh&#x1eadt; k&#x00fd;</button>
+                            <button id="youtube-refresh-btn" class="btn-secondary">Làm mới</button>
+                            <button id="proeditor-logout-btn" class="btn-secondary">Đăng xuất</button>
+                        </div>
                     </div>
                     <div class="youtube-storage-settings">
                         <div class="youtube-storage-row">
@@ -581,9 +593,17 @@ https://www.youtube.com/watch?v=..."
                                         <label for="auto-max-per-day">Giới hạn upload / ngày</label>
                                         <input type="number" id="auto-max-per-day" class="settings-input" min="1" max="50" value="5" />
                                     </div>
+                                    <div class="input-group" id="auto-max-public-group" style="display:none">
+                                        <label for="auto-max-public-per-day">Giới hạn public video / ngày</label>
+                                        <input type="number" id="auto-max-public-per-day" class="settings-input" min="1" max="50" value="2" />
+                                    </div>
+                                    <div class="input-group" id="auto-interval-group" style="display:none">
+                                        <label for="auto-interval-days">Khoảng cách ngày đăng</label>
+                                        <input type="number" id="auto-interval-days" class="settings-input" min="1" max="30" value="1" title="1 = mỗi ngày, 2 = 2 ngày 1 lần..." />
+                                    </div>
                                 </div>
                                 <div id="auto-schedule-group" style="display:none">
-                                    <p class="auto-slots-label">Mốc giờ đăng <small>(số mốc = giới hạn/ngày)</small></p>
+                                    <p class="auto-slots-label" id="auto-slots-title">Mốc giờ đăng <small>(số mốc = giới hạn public/ngày)</small></p>
                                     <div id="auto-schedule-slots" class="auto-slots-grid"></div>
                                 </div>
                             </div>
@@ -643,7 +663,9 @@ https://www.youtube.com/watch?v=..."
             <div id="youtube-auto-log-modal" class="modal" style="display:none">
                 <div class="modal-content youtube-auto-log-modal-content">
                     <div class="modal-header">
-                        <h2>📋 Nhật ký Upload Tự Động</h2><button id="youtube-auto-run-now-btn" class="btn-primary" style="margin-left:auto;font-size:var(--text-xs);padding:4px 10px">&#x25B6; Ch&#x1ea1;y ngay</button>
+                        <h2>📋 Nhật ký Upload Tự Động</h2>
+                        <span id="youtube-auto-log-status-badge" class="youtube-badge" style="margin-left: 10px;">Auto: Chưa chạy</span>
+                        <button id="youtube-auto-run-now-btn" class="btn-primary" style="margin-left:auto;font-size:var(--text-xs);padding:4px 10px">&#x25B6; Ch&#x1ea1;y ngay</button>
                         <span class="close" id="youtube-auto-log-close">&times;</span>
                     </div>
                     <div id="youtube-auto-log-body" class="youtube-auto-log-body"></div>

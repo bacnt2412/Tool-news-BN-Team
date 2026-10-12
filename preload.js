@@ -108,6 +108,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   localYoutubeAutoGet: (channelId) => ipcRenderer.invoke('local-youtube-auto-get', channelId),
   localYoutubeAutoSave: (channelId, config) => ipcRenderer.invoke('local-youtube-auto-save', channelId, config),
   localYoutubeAutoRunNow: () => ipcRenderer.invoke('local-youtube-auto-run-now'),
+  localYoutubeAutoLoopStatus: () => ipcRenderer.invoke('local-youtube-auto-loop-status'),
+  localYoutubeAutoLoopStart: () => ipcRenderer.invoke('local-youtube-auto-loop-start'),
+  localYoutubeAutoLoopStop: () => ipcRenderer.invoke('local-youtube-auto-loop-stop'),
+  onLocalYoutubeAutoLoopChanged: (callback) => ipcRenderer.on('local-youtube-auto-loop-changed', (event, data) => callback(data)),
   onLocalYoutubeAutoLog: (callback) => ipcRenderer.on('local-youtube-auto-log', (event, data) => callback(data)),
   onUpdateStatus: (callback) => {
     ipcRenderer.on('update-status', (event, data) => callback(data));

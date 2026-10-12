@@ -467,6 +467,7 @@ async function upload(channelId, video, onProgress = () => {}, signal = null, mo
         youtubeUrl: result.youtubeUrl,
         uploadedAt: new Date().toISOString(),
         privacyStatus: video.youtubeUploadOptions?.privacyStatus || requestedPrivacy || 'private',
+        scheduledPublishAt: publishAt ? publishAt.toISOString() : null,
         mode: mode || 'MANUAL'
       }
     };
@@ -504,11 +505,17 @@ function disconnect(channelId) {
 
 // ─── Auto-upload ────────────────────────────────────────────────────────────
 
-const DEFAULT_AUTO_CONFIG = { enabled: false, privacyStatus: 'private', restMinutes: 30, maxPerDay: 5, scheduledTimes: [] };
+const DEFAULT_AUTO_CONFIG = { enabled: false, privacyStatus: 'private', restMinutes: 30, maxPerDay: 5, maxPublicPerDay: 2, intervalDays: 1, scheduledTimes: [] };
 
 function autoConfig(channelId) {
   const data = load(channelId);
-  return { ...DEFAULT_AUTO_CONFIG, ...(data?.autoUpload || {}) };
+  const cfg = data?.autoUpload || {};
+  return {
+    ...DEFAULT_AUTO_CONFIG,
+    ...cfg,
+    maxPublicPerDay: cfg.maxPublicPerDay ?? cfg.maxPerDay ?? DEFAULT_AUTO_CONFIG.maxPublicPerDay,
+    intervalDays: Math.max(1, parseInt(cfg.intervalDays) || DEFAULT_AUTO_CONFIG.intervalDays),
+  };
 }
 
 function saveAutoConfig(channelId, config) {
@@ -569,24 +576,81 @@ function shouldAutoUpload(channelId) {
 
 /**
  * Calculate the publishAt datetime for the next video in schedule mode.
- * Slot index = today's completed count (before this upload).
- * If the slot time has already passed today, schedule for tomorrow.
+ * Continuous slot scanner: looks at previously scheduled videos in saved.uploads
+ * and picks the next available slot strictly after the latest scheduled time.
  */
 function nextPublishAt(channelId) {
   const cfg = autoConfig(channelId);
   if (cfg.privacyStatus !== 'schedule') return null;
-  const slots = cfg.scheduledTimes || [];
-  if (!slots.length) return null;
+  const rawSlots = cfg.scheduledTimes || [];
+  if (!rawSlots.length) return null;
+  const intervalDays = Math.max(1, parseInt(cfg.intervalDays) || 1);
 
-  const count = todayLog(channelId).count; // uploads already done today (before this one)
-  const slot = slots[count % slots.length]; // e.g. "09:00"
-  if (!slot) return null;
+  // Sắp xếp các mốc giờ tăng dần trong ngày
+  const slots = rawSlots.slice().sort((a, b) => {
+    const [ha, ma] = a.split(':').map(Number);
+    const [hb, mb] = b.split(':').map(Number);
+    return (ha * 60 + ma) - (hb * 60 + mb);
+  });
 
-  const [hh, mm] = slot.split(':').map(Number);
-  const publishDate = new Date();
-  publishDate.setHours(hh, mm, 0, 0);
-  if (publishDate.getTime() <= Date.now() + 60000) publishDate.setDate(publishDate.getDate() + 1);
-  return publishDate.toISOString();
+  const data = load(channelId);
+  const uploads = Object.values(data?.uploads || {});
+  const now = Date.now();
+  const bufferMs = 15 * 60 * 1000; // Đệm an toàn 15 phút
+
+  // Lọc các video đã có scheduledPublishAt nằm ở tương lai (> now)
+  const futureTimes = uploads
+    .map(u => u.scheduledPublishAt ? new Date(u.scheduledPublishAt).getTime() : 0)
+    .filter(t => !Number.isNaN(t) && t > now)
+    .sort((a, b) => a - b);
+
+  const latestScheduled = futureTimes.length > 0 ? futureTimes[futureTimes.length - 1] : 0;
+
+  if (!latestScheduled) {
+    // Chưa có lịch nào trong tương lai: bắt đầu dò từ hôm nay
+    const today = new Date();
+    for (const slot of slots) {
+      const [hh, mm] = slot.split(':').map(Number);
+      const d = new Date(today);
+      d.setHours(hh, mm, 0, 0);
+      if (d.getTime() >= now + bufferMs) {
+        return d.toISOString();
+      }
+    }
+    // Hôm nay đã hết mốc hợp lệ -> lấy mốc đầu tiên của ngày mai
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const [hh, mm] = slots[0].split(':').map(Number);
+    tomorrow.setHours(hh, mm, 0, 0);
+    return tomorrow.toISOString();
+  }
+
+  // Đã có mốc hẹn xa nhất: tìm mốc tiếp theo nối tiếp sau latestScheduled
+  const lastDate = new Date(latestScheduled);
+  const lastMinutes = lastDate.getHours() * 60 + lastDate.getMinutes();
+
+  // Tìm slot trong cùng ngày mà lớn hơn mốc vừa rồi
+  for (const slot of slots) {
+    const [hh, mm] = slot.split(':').map(Number);
+    const slotMinutes = hh * 60 + mm;
+    if (slotMinutes > lastMinutes) {
+      const nextDate = new Date(lastDate);
+      nextDate.setHours(hh, mm, 0, 0);
+      if (nextDate.getTime() >= now + bufferMs) {
+        return nextDate.toISOString();
+      }
+    }
+  }
+
+  // Nếu đã hết slot trong ngày đó -> chuyển sang ngày mới sau intervalDays ngày
+  const nextDay = new Date(lastDate);
+  nextDay.setDate(nextDay.getDate() + intervalDays);
+  const [hh, mm] = slots[0].split(':').map(Number);
+  nextDay.setHours(hh, mm, 0, 0);
+  while (nextDay.getTime() < now + bufferMs) {
+    nextDay.setDate(nextDay.getDate() + intervalDays);
+  }
+  return nextDay.toISOString();
 }
 
 /** Return all channelIds that have local YouTube credentials in the store. */
@@ -605,6 +669,8 @@ function autoStatus(channelId) {
     privacyStatus: cfg.privacyStatus,
     restMinutes: cfg.restMinutes,
     maxPerDay: cfg.maxPerDay,
+    maxPublicPerDay: cfg.maxPublicPerDay,
+    intervalDays: cfg.intervalDays,
     scheduledTimes: cfg.scheduledTimes,
     todayCount: log.count,
     lastAt: log.lastAt,

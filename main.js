@@ -1536,8 +1536,44 @@ ipcMain.handle('local-youtube-auto-save', (event, channelId, config) =>
   localYoutubeUploadUtils.saveAutoConfig(channelId, config));
 
 ipcMain.handle('local-youtube-auto-run-now', () => {
-  runAutoUploadPoller();
+  runAutoUploadPoller(true);
   return { triggered: true };
+});
+
+ipcMain.handle('local-youtube-auto-loop-status', () => ({
+  active: autoUploadLoopActive,
+  running: autoUploadRunning
+}));
+
+ipcMain.handle('local-youtube-auto-loop-start', () => {
+  if (!autoUploadLoopActive) {
+    autoUploadLoopActive = true;
+    if (autoUploadTimer) clearInterval(autoUploadTimer);
+    autoUploadTimer = setInterval(() => {
+      if (autoUploadLoopActive) runAutoUploadPoller();
+    }, AUTO_UPLOAD_INTERVAL_MS);
+    log.info('[AutoUpload] Loop started by user.');
+    broadcastAutoLoopStatus();
+    runAutoUploadPoller();
+  }
+  return { success: true, active: true };
+});
+
+ipcMain.handle('local-youtube-auto-loop-stop', () => {
+  autoUploadLoopActive = false;
+  if (autoUploadTimer) {
+    clearInterval(autoUploadTimer);
+    autoUploadTimer = null;
+  }
+  if (currentAutoUploadController) {
+    try {
+      currentAutoUploadController.abort();
+    } catch (_) {}
+    currentAutoUploadController = null;
+  }
+  log.info('[AutoUpload] Loop stopped by user.');
+  broadcastAutoLoopStatus();
+  return { success: true, active: false };
 });
 
 // ─── Auto-upload Poller ───────────────────────────────────────────────────────
@@ -1549,14 +1585,30 @@ function sendToAllWindows(channel, data) {
 }
 
 let autoUploadRunning = false;
+let autoUploadLoopActive = false;
+let autoUploadTimer = null;
+let currentAutoUploadController = null;
+const AUTO_UPLOAD_INTERVAL_MS = 5 * 60 * 1000;
 
-async function runAutoUploadPoller() {
+function broadcastAutoLoopStatus() {
+  sendToAllWindows('local-youtube-auto-loop-changed', {
+    active: autoUploadLoopActive,
+    running: autoUploadRunning
+  });
+}
+
+async function runAutoUploadPoller(isManual = false) {
   if (autoUploadRunning) return;
   autoUploadRunning = true;
+  broadcastAutoLoopStatus();
   try {
     const channelIds = localYoutubeUploadUtils.allChannelIds();
-    log.info(`[AutoUpload] Poller tick — ${channelIds.length} channel(s) found.`);
+    log.info(`[AutoUpload] Poller tick — ${channelIds.length} channel(s) found. (active=${autoUploadLoopActive}, manual=${isManual})`);
     for (const channelId of channelIds) {
+      if (!autoUploadLoopActive && !isManual) {
+        log.info(`[AutoUpload] Loop stopped. Halting remaining channel checks.`);
+        break;
+      }
       const check = localYoutubeUploadUtils.shouldAutoUpload(channelId);
       if (!check.ok) { log.info(`[AutoUpload] ${channelId}: skipped — ${check.reason}`); continue; }
       const videosResult = await proEditorYoutubeUtils.videos(channelId, 1);
@@ -1574,6 +1626,7 @@ async function runAutoUploadPoller() {
       sendToAllWindows('local-youtube-auto-log', { type: 'start', ...baseEvent });
       // Throttle: only emit progress when stage changes or percent jumps ≥5%
       let lastStage = ''; let lastPct = -1;
+      currentAutoUploadController = new AbortController();
       try {
         const result = await localYoutubeUploadUtils.upload(channelId, videoWithOptions, progress => {
           const pct = Math.round(progress.percent || 0);
@@ -1583,7 +1636,7 @@ async function runAutoUploadPoller() {
           if (!pctJumped) return;
           lastPct = pct === 100 ? 101 : pct; // 101 blocks any subsequent 100% for this stage
           sendToAllWindows('local-youtube-auto-log', { type: 'progress', ...baseEvent, ...progress, percent: pct });
-        }, null, 'AUTO');
+        }, currentAutoUploadController.signal, 'AUTO');
         if (result.success) {
           localYoutubeUploadUtils.recordAutoUpload(channelId);
           log.info(`[AutoUpload] ${channelId}: success — ${result.youtubeUrl}`);
@@ -1595,9 +1648,12 @@ async function runAutoUploadPoller() {
       } catch (err) {
         log.error(`[AutoUpload] ${channelId}: exception — ${err.message}`);
         sendToAllWindows('local-youtube-auto-log', { type: 'error', ...baseEvent, error: err.message });
+      } finally {
+        currentAutoUploadController = null;
       }
     }
-  } finally { autoUploadRunning = false; }
+  } finally {
+    autoUploadRunning = false;
+    broadcastAutoLoopStatus();
+  }
 }
-
-setTimeout(() => { runAutoUploadPoller(); setInterval(runAutoUploadPoller, 5 * 60 * 1000); }, 60 * 1000);

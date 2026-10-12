@@ -198,6 +198,11 @@ export function setupYoutubeUploadListeners() {
   const autoPrivacy = document.getElementById('auto-privacy');
   const autoRestMinutes = document.getElementById('auto-rest-minutes');
   const autoMaxPerDay = document.getElementById('auto-max-per-day');
+  const autoMaxPublicGroup = document.getElementById('auto-max-public-group');
+  const autoMaxPublicPerDay = document.getElementById('auto-max-public-per-day');
+  const autoIntervalGroup = document.getElementById('auto-interval-group');
+  const autoIntervalDays = document.getElementById('auto-interval-days');
+  const autoSlotsTitle = document.getElementById('auto-slots-title');
   const autoScheduleGroup = document.getElementById('auto-schedule-group');
   const autoScheduleSlots = document.getElementById('auto-schedule-slots');
   const autoTodayStatus = document.getElementById('auto-today-status');
@@ -367,33 +372,50 @@ export function setupYoutubeUploadListeners() {
   }
 
   function syncSlotsToMax() {
-    const n = Math.max(1, Math.min(50, parseInt(autoMaxPerDay?.value) || 5));
+    const n = Math.max(1, Math.min(50, parseInt(autoMaxPublicPerDay?.value) || 2));
     const savedTimes = autoScheduleSlots ? [...autoScheduleSlots.querySelectorAll('.auto-time-input')].map(el => el.value) : [];
     renderScheduleSlots(n, savedTimes);
+    if (autoSlotsTitle) {
+      autoSlotsTitle.innerHTML = `Mốc giờ đăng <small>(số mốc = ${n} video public/ngày)</small>`;
+    }
   }
 
-  autoPrivacy?.addEventListener('change', () => {
-    if (autoScheduleGroup) autoScheduleGroup.style.display = autoPrivacy.value === 'schedule' ? 'block' : 'none';
+  function updateScheduleVisibility() {
+    const isSchedule = autoPrivacy?.value === 'schedule';
+    if (autoScheduleGroup) autoScheduleGroup.style.display = isSchedule ? 'block' : 'none';
+    if (autoMaxPublicGroup) autoMaxPublicGroup.style.display = isSchedule ? 'block' : 'none';
+    if (autoIntervalGroup) autoIntervalGroup.style.display = isSchedule ? 'block' : 'none';
+    if (isSchedule) syncSlotsToMax();
+  }
+
+  autoPrivacy?.addEventListener('change', updateScheduleVisibility);
+  autoMaxPublicPerDay?.addEventListener('input', () => {
+    if (autoPrivacy?.value === 'schedule') syncSlotsToMax();
   });
-  autoMaxPerDay?.addEventListener('change', () => {
+  autoMaxPublicPerDay?.addEventListener('change', () => {
     if (autoPrivacy?.value === 'schedule') syncSlotsToMax();
   });
 
   document.getElementById('auto-modal-save')?.addEventListener('click', async () => {
     if (!currentSettingsChannelId) return;
-    const scheduledTimes = autoPrivacy.value === 'schedule'
+    const isSchedule = autoPrivacy.value === 'schedule';
+    const scheduledTimes = isSchedule
       ? [...autoScheduleSlots.querySelectorAll('.auto-slot-input')].map(div => getSlotTime(div)).filter(Boolean)
       : [];
+    const maxPublicPerDay = Math.max(1, Math.min(50, parseInt(autoMaxPublicPerDay?.value) || 2));
+    const intervalDays = Math.max(1, Math.min(30, parseInt(autoIntervalDays?.value) || 1));
     const config = {
       enabled: autoEnabled.checked,
       privacyStatus: autoPrivacy.value,
       restMinutes: parseInt(autoRestMinutes.value) || 30,
       maxPerDay: parseInt(autoMaxPerDay.value) || 5,
+      maxPublicPerDay,
+      intervalDays,
       scheduledTimes,
     };
-    if (config.privacyStatus === 'schedule' && scheduledTimes.length < config.maxPerDay) {
+    if (isSchedule && scheduledTimes.length < config.maxPublicPerDay) {
       if (autoModalStatus) {
-        autoModalStatus.textContent = `Cần đủ ${config.maxPerDay} mốc giờ cho chế độ Hẹn giờ đăng.`;
+        autoModalStatus.textContent = `Cần đủ ${config.maxPublicPerDay} mốc giờ cho chế độ Hẹn giờ đăng.`;
         autoModalStatus.className = 'youtube-manager-status error';
       }
       return;
@@ -509,8 +531,19 @@ export function setupYoutubeUploadListeners() {
     if (autoPrivacy) autoPrivacy.value = autoCfg.privacyStatus || 'private';
     if (autoRestMinutes) autoRestMinutes.value = autoCfg.restMinutes ?? 30;
     if (autoMaxPerDay) autoMaxPerDay.value = autoCfg.maxPerDay ?? 5;
-    if (autoScheduleGroup) autoScheduleGroup.style.display = autoCfg.privacyStatus === 'schedule' ? 'block' : 'none';
-    renderScheduleSlots(autoCfg.maxPerDay || 5, autoCfg.scheduledTimes || []);
+    const maxPublic = autoCfg.maxPublicPerDay ?? 2;
+    if (autoMaxPublicPerDay) autoMaxPublicPerDay.value = maxPublic;
+    const intervalDays = autoCfg.intervalDays ?? 1;
+    if (autoIntervalDays) autoIntervalDays.value = intervalDays;
+
+    const isSchedule = autoCfg.privacyStatus === 'schedule';
+    if (autoScheduleGroup) autoScheduleGroup.style.display = isSchedule ? 'block' : 'none';
+    if (autoMaxPublicGroup) autoMaxPublicGroup.style.display = isSchedule ? 'block' : 'none';
+    if (autoIntervalGroup) autoIntervalGroup.style.display = isSchedule ? 'block' : 'none';
+    renderScheduleSlots(maxPublic, autoCfg.scheduledTimes || []);
+    if (autoSlotsTitle) {
+      autoSlotsTitle.innerHTML = `Mốc giờ đăng <small>(số mốc = ${maxPublic} video public/ngày)</small>`;
+    }
     if (autoCfg.enabled !== undefined && autoTodayStatus) {
       const lastAtStr = autoCfg.lastAt ? new Date(autoCfg.lastAt).toLocaleTimeString('vi-VN') : 'chưa có';
       autoTodayStatus.style.display = 'block';
@@ -683,6 +716,76 @@ export function setupYoutubeUploadListeners() {
       notify(`${labels[data.stage] || 'Đang xử lý'}: ${pct}%`);
     }
   });
+
+  const autoToggleBtn = document.getElementById('youtube-auto-toggle-btn');
+  const autoToggleText = document.getElementById('youtube-auto-toggle-text');
+  const autoLoopBadge = document.getElementById('youtube-auto-loop-badge');
+  const autoLogStatusBadge = document.getElementById('youtube-auto-log-status-badge');
+  let isAutoLoopActive = false;
+
+  function updateAutoLoopUI(state) {
+    if (!state) return;
+    isAutoLoopActive = !!state.active;
+    const { active, running } = state;
+
+    if (autoToggleBtn) {
+      autoToggleBtn.className = active ? 'btn-auto-toggle state-running' : 'btn-auto-toggle state-stopped';
+      autoToggleBtn.title = active ? 'Nhấn để dừng luồng tự động upload' : 'Nhấn để bắt đầu luồng tự động upload';
+    }
+    if (autoToggleText) {
+      if (!active) {
+        autoToggleText.textContent = 'Bắt đầu Auto Upload';
+      } else if (running) {
+        autoToggleText.textContent = 'Dừng Auto (Đang xử lý...)';
+      } else {
+        autoToggleText.textContent = 'Dừng Auto Upload';
+      }
+    }
+    if (autoLoopBadge) {
+      autoLoopBadge.className = active ? 'youtube-badge connected' : 'youtube-badge';
+      autoLoopBadge.textContent = active ? (running ? '⚡ Auto: Đang upload...' : '⚡ Auto: Đang hoạt động') : 'Auto: Chưa chạy';
+    }
+    if (autoLogStatusBadge) {
+      autoLogStatusBadge.className = active ? 'youtube-badge connected' : 'youtube-badge';
+      autoLogStatusBadge.textContent = active ? (running ? '⚡ Đang upload...' : '⚡ Đang hoạt động') : 'Chưa chạy';
+    }
+  }
+
+  autoToggleBtn?.addEventListener('click', async () => {
+    if (autoToggleBtn.disabled) return;
+    autoToggleBtn.disabled = true;
+    try {
+      if (!isAutoLoopActive) {
+        const res = await api().localYoutubeAutoLoopStart();
+        if (res?.success) {
+          notify('Đã khởi động luồng Auto Upload chung cho tất cả các kênh.', 'success');
+          updateAutoLoopUI({ active: true, running: false });
+        } else {
+          notify(res?.error || 'Không thể khởi động Auto Upload.', 'error');
+        }
+      } else {
+        const res = await api().localYoutubeAutoLoopStop();
+        if (res?.success) {
+          notify('Đã dừng luồng Auto Upload.', 'info');
+          updateAutoLoopUI({ active: false, running: false });
+        } else {
+          notify(res?.error || 'Lỗi khi dừng Auto Upload.', 'error');
+        }
+      }
+    } catch (err) {
+      notify(`Lỗi: ${err.message}`, 'error');
+    } finally {
+      autoToggleBtn.disabled = false;
+    }
+  });
+
+  api().onLocalYoutubeAutoLoopChanged?.(state => {
+    updateAutoLoopUI(state);
+  });
+
+  api().localYoutubeAutoLoopStatus?.().then(st => {
+    updateAutoLoopUI(st);
+  }).catch(() => {});
 
   document.getElementById('youtube-auto-log-btn').addEventListener('click', openAutoLogModal);
   document.getElementById('youtube-refresh-btn').addEventListener('click', loadChannels);
