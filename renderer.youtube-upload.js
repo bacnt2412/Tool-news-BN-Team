@@ -44,6 +44,10 @@ export function setupYoutubeUploadListeners() {
     document.getElementById('proeditor-current-user').textContent = user?.name || user?.username || '';
   }
 
+  let currentChannels = [];
+  let sortScheduleOrder = 'none'; // 'none' | 'desc' | 'asc'
+  let sortWorkStatusOrder = 'none'; // 'none' | 'active-first' | 'paused-first'
+
   async function loadChannels() {
     notify('Đang tải danh sách kênh...');
     const result = await api().proEditorChannels();
@@ -52,14 +56,281 @@ export function setupYoutubeUploadListeners() {
       notify(result.error, 'error');
       return;
     }
-    const channels = await Promise.all(result.channels.map(async channel => ({
-      ...channel,
-      localYoutube: await api().localYoutubeStatus(channel._id),
-      autoSt: await api().localYoutubeAutoGet(channel._id).catch(() => ({})),
-    })));
+    const channels = await Promise.all(result.channels.map(async channel => {
+      await api().localYoutubeSyncChannel?.(channel._id, channel.youtubeUploadConfig, channel.workStatus).catch(() => {});
+      const localStatus = await api().localYoutubeStatus(channel._id);
+      return {
+        ...channel,
+        workStatus: channel.workStatus || localStatus?.workStatus || 'ACTIVE',
+        localYoutube: localStatus,
+        autoSt: await api().localYoutubeAutoGet(channel._id).catch(() => ({})),
+      };
+    }));
     channels.forEach(channel => localChannelState.set(String(channel._id), channel.localYoutube || {}));
-    renderChannels(channels);
-    notify(`Đã tải ${result.channels.length} kênh`, 'success');
+    currentChannels = channels;
+    applySortAndRender();
+    if (sortScheduleOrder === 'none' && sortWorkStatusOrder === 'none') {
+      notify(`Đã tải ${result.channels.length} kênh`, 'success');
+    }
+  }
+
+  function getFurthestScheduleInfo(channel) {
+    const localUploads = channel.localYoutube?.uploads || {};
+    const serverUploads = channel.youtubeUploadConfig?.uploads || {};
+    const uploadsObj = { ...serverUploads, ...localUploads };
+    const uploadList = Object.values(uploadsObj).filter(Boolean);
+
+    if (!uploadList.length) {
+      if (channel.autoSt?.lastAt) {
+        const d = new Date(channel.autoSt.lastAt);
+        if (!isNaN(d.getTime())) {
+          return {
+            type: 'autorun',
+            timestamp: d.getTime(),
+            date: d,
+            title: 'Auto run',
+          };
+        }
+      }
+      return { type: 'none', timestamp: 0, date: null, title: '' };
+    }
+
+    const now = Date.now();
+
+    // 1. Thu thập tất cả video có lịch hẹn giờ (scheduledPublishAt hoặc publishAt hoặc datePublic)
+    const scheduledList = uploadList
+      .map(u => {
+        let timestamp = NaN;
+        const rawDate = u.scheduledPublishAt || u.publishAt;
+        if (rawDate) {
+          timestamp = new Date(rawDate).getTime();
+        } else if (u.datePublic) {
+          timestamp = new Date(`${u.datePublic}T${u.timePublic || '00:00:00'}+07:00`).getTime();
+        }
+        return { ...u, timestamp };
+      })
+      .filter(u => !isNaN(u.timestamp));
+
+    // Lọc các video có lịch hẹn giờ ở tương lai (Max scheduled timestamp)
+    const futureScheduled = scheduledList.filter(u => u.timestamp > now);
+    if (futureScheduled.length > 0) {
+      futureScheduled.sort((a, b) => b.timestamp - a.timestamp);
+      const furthest = futureScheduled[0];
+      return {
+        type: 'future',
+        timestamp: furthest.timestamp,
+        date: new Date(furthest.timestamp),
+        title: furthest.title || '',
+      };
+    }
+
+    // 2. Nếu đã hết lịch hẹn trong tương lai, nhưng có video đã hẹn trong quá khứ
+    if (scheduledList.length > 0) {
+      scheduledList.sort((a, b) => b.timestamp - a.timestamp);
+      const latestScheduled = scheduledList[0];
+      return {
+        type: 'past',
+        timestamp: latestScheduled.timestamp,
+        date: new Date(latestScheduled.timestamp),
+        title: latestScheduled.title || '',
+      };
+    }
+
+    // 3. Nếu là các video upload trực tiếp (Công khai / Riêng tư không hẹn giờ)
+    const uploadedList = uploadList
+      .filter(u => u && u.uploadedAt)
+      .map(u => ({
+        ...u,
+        timestamp: new Date(u.uploadedAt).getTime()
+      }))
+      .filter(u => !isNaN(u.timestamp));
+
+    if (uploadedList.length > 0) {
+      uploadedList.sort((a, b) => b.timestamp - a.timestamp);
+      const latest = uploadedList[0];
+      return {
+        type: 'uploaded',
+        timestamp: latest.timestamp,
+        date: new Date(latest.timestamp),
+        title: latest.title || '',
+      };
+    }
+
+    return { type: 'none', timestamp: 0, date: null, title: '' };
+  }
+
+  function formatFurthestSchedule(channel) {
+    const info = getFurthestScheduleInfo(channel);
+    if (info.type === 'none' || !info.date) {
+      return '<span class="yt-last-upload-empty">Chưa có video</span>';
+    }
+
+    const now = Date.now();
+    const d = String(info.date.getDate()).padStart(2, '0');
+    const m = String(info.date.getMonth() + 1).padStart(2, '0');
+    const y = info.date.getFullYear();
+    const hh = String(info.date.getHours()).padStart(2, '0');
+    const mm = String(info.date.getMinutes()).padStart(2, '0');
+    const dateStr = `${d}/${m}/${y}`;
+    const timeStr = `${hh}:${mm}`;
+
+    if (info.type === 'future') {
+      const diffMs = info.timestamp - now;
+      const diffDays = Math.ceil(diffMs / (24 * 60 * 60 * 1000));
+      const diffHours = Math.ceil(diffMs / (60 * 60 * 1000));
+      const diffText = diffDays > 1 ? `(còn ${diffDays} ngày)` : diffHours > 1 ? `(còn ${diffHours}h)` : '(hôm nay)';
+
+      return `
+        <div class="yt-last-upload-wrap" title="${escapeHtml(info.title || '')} — Hẹn công khai: ${dateStr} ${timeStr}">
+          <span class="yt-last-upload-date is-future">📅 ${dateStr}</span>
+          <span class="yt-last-upload-meta">
+            <span class="yt-sched-tag">Hẹn giờ</span> ${timeStr} ${diffText}
+          </span>
+        </div>`;
+    }
+
+    if (info.type === 'past') {
+      return `
+        <div class="yt-last-upload-wrap" title="${escapeHtml(info.title || '')} — Lịch hẹn cuối: ${dateStr} ${timeStr}">
+          <span class="yt-last-upload-date">📅 ${dateStr}</span>
+          <span class="yt-last-upload-meta">
+            <span class="yt-sched-tag past">Hết lịch</span> ${timeStr} (đã đăng)
+          </span>
+        </div>`;
+    }
+
+    if (info.type === 'uploaded') {
+      return `
+        <div class="yt-last-upload-wrap" title="${escapeHtml(info.title || '')} — Upload lúc: ${dateStr} ${timeStr}">
+          <span class="yt-last-upload-date">📅 ${dateStr}</span>
+          <span class="yt-last-upload-meta">
+            <span class="yt-sched-tag upload">Đã đăng</span> ${timeStr}
+          </span>
+        </div>`;
+    }
+
+    if (info.type === 'autorun') {
+      return `
+        <div class="yt-last-upload-wrap">
+          <span class="yt-last-upload-date">📅 ${dateStr}</span>
+          <span class="yt-last-upload-meta">⏰ ${timeStr} • Auto run</span>
+        </div>`;
+    }
+
+    return '<span class="yt-last-upload-empty">Chưa có video</span>';
+  }
+
+  function applySortAndRender() {
+    let list = [...currentChannels];
+    if (sortWorkStatusOrder !== 'none') {
+      list.sort((a, b) => {
+        const statusA = a.workStatus || 'ACTIVE';
+        const statusB = b.workStatus || 'ACTIVE';
+        if (statusA !== statusB) {
+          if (sortWorkStatusOrder === 'active-first') {
+            return statusA === 'ACTIVE' ? -1 : 1;
+          } else {
+            return statusA === 'PAUSED' ? -1 : 1;
+          }
+        }
+        return (a.name || '').localeCompare(b.name || '');
+      });
+    } else if (sortScheduleOrder !== 'none') {
+      list.sort((a, b) => {
+        const infoA = getFurthestScheduleInfo(a);
+        const infoB = getFurthestScheduleInfo(b);
+
+        const hasA = infoA.type !== 'none' && infoA.timestamp > 0;
+        const hasB = infoB.type !== 'none' && infoB.timestamp > 0;
+
+        if (!hasA && !hasB) return (a.name || '').localeCompare(b.name || '');
+        if (!hasA) return 1;
+        if (!hasB) return -1;
+
+        if (sortScheduleOrder === 'desc') {
+          const scoreA = (infoA.type === 'future' ? 1e15 : 0) + infoA.timestamp;
+          const scoreB = (infoB.type === 'future' ? 1e15 : 0) + infoB.timestamp;
+          if (scoreB !== scoreA) return scoreB - scoreA;
+          return (a.name || '').localeCompare(b.name || '');
+        } else {
+          const scoreA = (infoA.type === 'future' ? 1e15 : 0) + infoA.timestamp;
+          const scoreB = (infoB.type === 'future' ? 1e15 : 0) + infoB.timestamp;
+          if (scoreA !== scoreB) return scoreA - scoreB;
+          return (a.name || '').localeCompare(b.name || '');
+        }
+      });
+    }
+
+    renderChannels(list);
+    updateSortHeaderUI();
+  }
+
+  function updateSortHeaderUI() {
+    const thSched = document.getElementById('th-furthest-schedule');
+    const iconSched = document.getElementById('sort-schedule-icon');
+    if (thSched && iconSched) {
+      thSched.classList.remove('sort-active');
+      if (sortScheduleOrder === 'desc') {
+        thSched.classList.add('sort-active');
+        iconSched.textContent = '▼';
+        thSched.title = 'Đang sắp xếp: Lịch xa nhất trước (Giảm dần). Nhấn để chuyển sang xem lịch gần nhất (Tăng dần)';
+      } else if (sortScheduleOrder === 'asc') {
+        thSched.classList.add('sort-active');
+        iconSched.textContent = '▲';
+        thSched.title = 'Đang sắp xếp: Lịch gần nhất trước (Tăng dần). Nhấn để hủy sắp xếp';
+      } else {
+        iconSched.textContent = '↕';
+        thSched.title = 'Nhấn để sắp xếp theo Hẹn giờ xa nhất (Giảm dần / Tăng dần)';
+      }
+    }
+
+    const thWork = document.getElementById('th-channel-work-status');
+    const iconWork = document.getElementById('sort-work-status-icon');
+    if (thWork && iconWork) {
+      thWork.classList.remove('sort-active');
+      if (sortWorkStatusOrder === 'active-first') {
+        thWork.classList.add('sort-active');
+        iconWork.textContent = '▼';
+        thWork.title = 'Đang sắp xếp: Đang làm trước (▼). Nhấn để chuyển sang Dừng làm trước (▲)';
+      } else if (sortWorkStatusOrder === 'paused-first') {
+        thWork.classList.add('sort-active');
+        iconWork.textContent = '▲';
+        thWork.title = 'Đang sắp xếp: Dừng làm trước (▲). Nhấn để hủy sắp xếp';
+      } else {
+        iconWork.textContent = '↕';
+        thWork.title = 'Nhấn để sắp xếp theo Trạng thái (Đang làm / Dừng làm)';
+      }
+    }
+  }
+
+  function toggleScheduleSort() {
+    sortWorkStatusOrder = 'none';
+    if (sortScheduleOrder === 'none') {
+      sortScheduleOrder = 'desc';
+      notify(`Đã tải ${currentChannels.length} kênh • Sắp xếp: Hẹn xa nhất trước (Giảm dần ▼)`, 'info');
+    } else if (sortScheduleOrder === 'desc') {
+      sortScheduleOrder = 'asc';
+      notify(`Đã tải ${currentChannels.length} kênh • Sắp xếp: Hẹn gần nhất trước (Tăng dần ▲)`, 'info');
+    } else {
+      sortScheduleOrder = 'none';
+      notify(`Đã tải ${currentChannels.length} kênh`, 'success');
+    }
+    applySortAndRender();
+  }
+
+  function toggleWorkStatusSort() {
+    sortScheduleOrder = 'none';
+    if (sortWorkStatusOrder === 'none') {
+      sortWorkStatusOrder = 'active-first';
+      notify(`Đã tải ${currentChannels.length} kênh • Sắp xếp: Kênh Đang làm trước (▼)`, 'info');
+    } else if (sortWorkStatusOrder === 'active-first') {
+      sortWorkStatusOrder = 'paused-first';
+      notify(`Đã tải ${currentChannels.length} kênh • Sắp xếp: Kênh Dừng làm trước (▲)`, 'info');
+    } else {
+      sortWorkStatusOrder = 'none';
+      notify(`Đã tải ${currentChannels.length} kênh`, 'success');
+    }
+    applySortAndRender();
   }
 
   function renderChannels(channels) {
@@ -68,13 +339,19 @@ export function setupYoutubeUploadListeners() {
       const autoBadge = autoSt.enabled
         ? `<span class="yt-auto-badge">⚡ ${autoSt.todayCount || 0}/${autoSt.maxPerDay || 5} hôm nay</span>`
         : `<span class="yt-auto-badge disabled">Tắt</span>`;
+      const isPaused = channel.workStatus === 'PAUSED';
+      const statusBtn = isPaused
+        ? `<button class="btn-work-status paused" data-channel-id="${escapeHtml(channel._id)}" type="button" title="Kênh đang tạm dừng làm. Nhấn để chuyển sang Đang làm"><span class="status-dot"></span><span>Dừng làm</span></button>`
+        : `<button class="btn-work-status active" data-channel-id="${escapeHtml(channel._id)}" type="button" title="Kênh đang làm việc. Nhấn để chuyển sang Dừng làm"><span class="status-dot"></span><span>Đang làm</span></button>`;
       return `
       <tr class="youtube-channel-row" data-channel-id="${escapeHtml(channel._id)}">
         <td>${index + 1}</td>
         <td><img class="youtube-channel-avatar" src="${escapeHtml(channel.thumbnail || '')}" alt="" /></td>
         <td><strong>${escapeHtml(channel.name)}</strong><div class="youtube-muted">${escapeHtml(channel.channelId)}</div></td>
+        <td>${statusBtn}</td>
         <td><span class="youtube-badge ${channel.localYoutube?.connected ? 'connected' : ''}">${channel.localYoutube?.connected ? `Local: ${escapeHtml(channel.localYoutube.channelTitle || 'Đã kết nối')}` : channel.localYoutube?.configured ? 'Đã cài JSON, chưa OAuth' : 'Chưa cài OAuth JSON'}</span>${channel.localYoutube?.proxy?.enabled ? ' <span class="youtube-badge proxy-on" style="background:#ff9800;color:white">Proxy: Bật</span>' : ''}<div class="youtube-muted">${escapeHtml(channel.localYoutube?.projectId || '')}</div></td>
         <td>${autoBadge}</td>
+        <td>${formatFurthestSchedule(channel)}</td>
         <td class="youtube-channel-actions">
           <button class="btn-primary youtube-videos-btn" title="Xem danh sách video">Danh sách video</button>
           <button class="btn-secondary youtube-history-btn" title="Xem lịch sử upload của kênh">📜 Lịch sử</button>
@@ -82,7 +359,7 @@ export function setupYoutubeUploadListeners() {
           <button class="btn-ghost-danger youtube-remove-channel-btn" title="Xóa kênh khỏi danh sách">Xóa</button>
         </td>
       </tr>`;
-    }).join('') : '<tr><td colspan="6" class="youtube-empty">Chưa có kênh nào trên tài khoản ProEditor của bạn.</td></tr>';
+    }).join('') : '<tr><td colspan="8" class="youtube-empty">Chưa có kênh nào trên tài khoản ProEditor của bạn.</td></tr>';
   }
 
   async function showVideos(channelId, page = 1) {
@@ -167,6 +444,38 @@ export function setupYoutubeUploadListeners() {
     const channelRow = event.target.closest('.youtube-channel-row');
     const channelId = channelRow?.dataset.channelId;
     if (!channelId) return;
+
+    const workStatusBtn = event.target.closest('.btn-work-status');
+    if (workStatusBtn) {
+      const channel = currentChannels.find(c => String(c._id) === String(channelId));
+      if (!channel) return;
+      const currentStatus = channel.workStatus || 'ACTIVE';
+      const newStatus = currentStatus === 'ACTIVE' ? 'PAUSED' : 'ACTIVE';
+
+      // Optimistic update
+      channel.workStatus = newStatus;
+      if (channel.localYoutube) channel.localYoutube.workStatus = newStatus;
+      workStatusBtn.classList.add('is-loading');
+
+      try {
+        const res = await api().proEditorChannelWorkStatus(channelId, newStatus);
+        if (res && res.success === false) {
+          channel.workStatus = currentStatus;
+          if (channel.localYoutube) channel.localYoutube.workStatus = currentStatus;
+          notify(`Không thể cập nhật trạng thái: ${res.error || 'Lỗi server'}`, 'error');
+        } else {
+          const statusText = newStatus === 'ACTIVE' ? 'Đang làm' : 'Dừng làm';
+          notify(`Kênh "${channel.name}" đã chuyển sang "${statusText}"`, 'success');
+        }
+      } catch (err) {
+        channel.workStatus = currentStatus;
+        if (channel.localYoutube) channel.localYoutube.workStatus = currentStatus;
+        notify(`Lỗi cập nhật trạng thái: ${err.message}`, 'error');
+      } finally {
+        applySortAndRender();
+      }
+      return;
+    }
 
     if (event.target.closest('.youtube-videos-btn')) return showVideos(channelId);
     if (event.target.closest('.youtube-history-btn')) return openHistoryModal(channelId);
@@ -789,6 +1098,8 @@ export function setupYoutubeUploadListeners() {
 
   document.getElementById('youtube-auto-log-btn').addEventListener('click', openAutoLogModal);
   document.getElementById('youtube-refresh-btn').addEventListener('click', loadChannels);
+  document.getElementById('th-furthest-schedule')?.addEventListener('click', toggleScheduleSort);
+  document.getElementById('th-channel-work-status')?.addEventListener('click', toggleWorkStatusSort);
   document.getElementById('proeditor-logout-btn').addEventListener('click', async () => { await api().proEditorLogout(); setAuthenticated(false); });
 
   async function loadStorageSettings() {

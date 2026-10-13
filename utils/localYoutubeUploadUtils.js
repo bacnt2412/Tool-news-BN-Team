@@ -494,7 +494,15 @@ async function upload(channelId, video, onProgress = () => {}, signal = null, mo
 
 function status(channelId) {
   const data = load(channelId);
-  return { configured: Boolean(data?.credentials), connected: Boolean(data?.tokens?.refresh_token), channelTitle: data?.channel?.title || '', projectId: data?.credentials?.projectId || '', uploads: data?.uploads || {}, proxy: data?.proxy || {} };
+  return {
+    configured: Boolean(data?.credentials),
+    connected: Boolean(data?.tokens?.refresh_token),
+    channelTitle: data?.channel?.title || '',
+    projectId: data?.credentials?.projectId || '',
+    uploads: data?.uploads || {},
+    proxy: data?.proxy || {},
+    workStatus: data?.workStatus || 'ACTIVE'
+  };
 }
 
 function disconnect(channelId) {
@@ -519,8 +527,7 @@ function autoConfig(channelId) {
 }
 
 function saveAutoConfig(channelId, config) {
-  const data = load(channelId);
-  if (!data) return { success: false, error: 'Kênh chưa được cấu hình.' };
+  const data = load(channelId) || {};
   save(channelId, { ...data, autoUpload: { ...DEFAULT_AUTO_CONFIG, ...config } });
   return { success: true };
 }
@@ -556,9 +563,11 @@ function recordAutoUpload(channelId) {
  * Returns { ok: true } or { ok: false, reason: string }
  */
 function shouldAutoUpload(channelId) {
+  const data = load(channelId);
+  if (data?.workStatus === 'PAUSED') return { ok: false, reason: 'Kênh đã dừng làm (PAUSED).' };
   const cfg = autoConfig(channelId);
   if (!cfg.enabled) return { ok: false, reason: 'Tự động upload chưa bật.' };
-  if (!load(channelId)?.tokens?.refresh_token) return { ok: false, reason: 'Kênh chưa kết nối OAuth.' };
+  if (!data?.tokens?.refresh_token) return { ok: false, reason: 'Kênh chưa kết nối OAuth.' };
 
   const log = todayLog(channelId);
   if (log.count >= cfg.maxPerDay) return { ok: false, reason: `Đã đạt ${cfg.maxPerDay} video hôm nay.` };
@@ -698,11 +707,59 @@ function uploadHistory(channelId) {
   };
 }
 
+function syncFromServer(channelId, serverConfig, serverWorkStatus) {
+  if (!channelId) return;
+  const current = load(channelId) || {};
+  let modified = false;
+
+  if (serverWorkStatus && current.workStatus !== serverWorkStatus) {
+    current.workStatus = serverWorkStatus;
+    modified = true;
+  }
+  if (serverConfig) {
+    if (serverConfig.autoUpload && typeof serverConfig.autoUpload === 'object') {
+      current.autoUpload = { ...DEFAULT_AUTO_CONFIG, ...(current.autoUpload || {}), ...serverConfig.autoUpload };
+      modified = true;
+    }
+    if (serverConfig.proxy && typeof serverConfig.proxy === 'object') {
+      current.proxy = { ...(current.proxy || {}), ...serverConfig.proxy };
+      modified = true;
+    }
+    if (serverConfig.uploads && typeof serverConfig.uploads === 'object') {
+      current.uploads = { ...(current.uploads || {}), ...serverConfig.uploads };
+      modified = true;
+    }
+  }
+  if (modified) {
+    save(channelId, current);
+  }
+}
+
+function saveWorkStatus(channelId, workStatus) {
+  const current = load(channelId) || {};
+  current.workStatus = workStatus;
+  save(channelId, current);
+  return { success: true };
+}
+
+function getSyncPayload(channelId) {
+  const data = load(channelId);
+  if (!data) return null;
+  return {
+    autoUpload: data.autoUpload || null,
+    proxy: data.proxy || null,
+    uploads: data.uploads || null
+  };
+}
+
 module.exports = {
   getProxyConfig,
   saveProxyConfig,
   initialize, selectCredentials, connect, upload, status, disconnect, storageSettings, selectStorageFolder, uploadHistory,
   // auto-upload
   autoConfig, saveAutoConfig, recordAutoUpload, shouldAutoUpload, nextPublishAt, allChannelIds, autoStatus,
+  syncFromServer,
+  getSyncPayload,
+  saveWorkStatus,
 };
 

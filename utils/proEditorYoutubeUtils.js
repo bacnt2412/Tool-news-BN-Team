@@ -94,4 +94,25 @@ function upload(videoId) {
   return request('post', '/v1/video/reupload-video', { idVideo: videoId });
 }
 
-module.exports = { initialize, login, session, logout, channels, createChannel, removeChannel, videos, oauthUrl, setAutoUpload, disconnect, upload };
+function getYoutubeConfig(channelId) {
+  return request('get', `/v1/channel/channels/${channelId}/youtube-config`);
+}
+
+function saveYoutubeConfig(channelId, config) {
+  return request('post', `/v1/channel/channels/${channelId}/youtube-config`, config);
+}
+
+function recordYoutubeUpload(channelId, data) {
+  return request('post', `/v1/channel/channels/${channelId}/youtube-record-upload`, data);
+}
+
+function updateChannelWorkStatus(channelId, workStatus) {
+  return request('post', `/v1/channel/channels/${channelId}/work-status`, { workStatus });
+}
+
+module.exports = {
+  initialize, login, session, logout, channels, createChannel, removeChannel,
+  videos, oauthUrl, setAutoUpload, disconnect, upload,
+  getYoutubeConfig, saveYoutubeConfig, recordYoutubeUpload,
+  updateChannelWorkStatus
+};

@@ -1435,6 +1435,10 @@ ipcMain.handle('proeditor-create-channel', (event, data) => proEditorYoutubeUtil
 ipcMain.handle('proeditor-remove-channel', (event, id) => proEditorYoutubeUtils.removeChannel(id));
 ipcMain.handle('proeditor-channel-videos', (event, channelId, page) =>
   proEditorYoutubeUtils.videos(channelId, page));
+ipcMain.handle('proeditor-channel-work-status', async (event, channelId, status) => {
+  localYoutubeUploadUtils.saveWorkStatus(channelId, status);
+  return proEditorYoutubeUtils.updateChannelWorkStatus(channelId, status);
+});
 ipcMain.handle('proeditor-youtube-oauth', async (event, channelId) => {
   const result = await proEditorYoutubeUtils.oauthUrl(channelId);
   if (result.success && result.url) await shell.openExternal(result.url);
@@ -1457,8 +1461,11 @@ ipcMain.handle('local-youtube-disconnect', (event, channelId) =>
 
 ipcMain.handle('local-youtube-proxy-get', (event, channelId) => 
   localYoutubeUploadUtils.getProxyConfig(channelId));
-ipcMain.handle('local-youtube-proxy-save', (event, channelId, config) => {
+ipcMain.handle('local-youtube-proxy-save', async (event, channelId, config) => {
   localYoutubeUploadUtils.saveProxyConfig(channelId, config);
+  proEditorYoutubeUtils.saveYoutubeConfig(channelId, { proxy: config }).catch(err => {
+    log.warn(`[ProxySave] Server sync error: ${err.message}`);
+  });
   return { success: true };
 });
 ipcMain.handle('local-youtube-proxy-test', async (event, config) => {
@@ -1509,7 +1516,18 @@ ipcMain.handle('local-youtube-upload', async (event, channelId, video) => {
     }
   };
   try {
-    return await localYoutubeUploadUtils.upload(channelId, video, sendProgress, controller.signal, 'MANUAL');
+    const result = await localYoutubeUploadUtils.upload(channelId, video, sendProgress, controller.signal, 'MANUAL');
+    if (result.success) {
+      proEditorYoutubeUtils.recordYoutubeUpload(channelId, {
+        videoId: String(video?._id),
+        youtubeVideoId: result.youtubeVideoId,
+        youtubeUrl: result.youtubeUrl,
+        title: video?.aiTitle || video?.name || result.title,
+        mode: 'MANUAL',
+        scheduledPublishAt: video?.youtubeUploadOptions?.publishAt
+      }).catch(err => log.warn(`[ManualUpload] Server sync record error: ${err.message}`));
+    }
+    return result;
   } catch (error) {
     const cancelled = controller.signal.aborted;
     return { success: false, cancelled, error: cancelled ? 'Upload da bi huy.' : (error.response?.data?.error?.message || error.message) };
@@ -1529,11 +1547,53 @@ ipcMain.handle('local-youtube-upload-history', (event, channelId) =>
   localYoutubeUploadUtils.uploadHistory(channelId));
 
 
+ipcMain.handle('local-youtube-sync-from-server', (event, channelId, serverConfig) => {
+  localYoutubeUploadUtils.syncFromServer(channelId, serverConfig);
+  return { success: true };
+});
+
+ipcMain.handle('local-youtube-sync-channel', async (event, channelId, serverConfig, serverWorkStatus) => {
+  if (!channelId) return { success: false };
+  const localData = localYoutubeUploadUtils.getSyncPayload(channelId);
+
+  // 1. If server has config or workStatus, merge to local
+  localYoutubeUploadUtils.syncFromServer(channelId, serverConfig, serverWorkStatus);
+
+  // 2. If local has data that server is missing -> automatically push to server!
+  const hasLocalAuto = Boolean(localData?.autoUpload && Object.keys(localData.autoUpload).length > 0);
+  const hasLocalProxy = Boolean(localData?.proxy && localData.proxy.enabled);
+  const localUploads = localData?.uploads || {};
+  const hasLocalUploads = Object.keys(localUploads).length > 0;
+
+  const serverUploads = serverConfig?.uploads || {};
+  const serverMissingUploads = Object.keys(localUploads).some(id => !serverUploads[id]);
+  const serverMissingAuto = hasLocalAuto && (!serverConfig?.autoUpload || !serverConfig.autoUpload.scheduledTimes?.length);
+  const serverMissingProxy = hasLocalProxy && (!serverConfig?.proxy || !serverConfig.proxy.host);
+
+  if (serverMissingAuto || serverMissingProxy || serverMissingUploads) {
+    const payload = {};
+    if (hasLocalAuto) payload.autoUpload = localData.autoUpload;
+    if (hasLocalProxy) payload.proxy = localData.proxy;
+    if (hasLocalUploads) payload.uploads = { ...serverUploads, ...localUploads };
+
+    await proEditorYoutubeUtils.saveYoutubeConfig(channelId, payload).catch(err => {
+      log.warn(`[Sync] Failed to push local data to server for ${channelId}: ${err.message}`);
+    });
+  }
+
+  return { success: true };
+});
+
 ipcMain.handle('local-youtube-auto-get', (event, channelId) =>
   localYoutubeUploadUtils.autoStatus(channelId));
 
-ipcMain.handle('local-youtube-auto-save', (event, channelId, config) =>
-  localYoutubeUploadUtils.saveAutoConfig(channelId, config));
+ipcMain.handle('local-youtube-auto-save', async (event, channelId, config) => {
+  const res = localYoutubeUploadUtils.saveAutoConfig(channelId, config);
+  proEditorYoutubeUtils.saveYoutubeConfig(channelId, { autoUpload: config }).catch(err => {
+    log.warn(`[AutoSave] Server sync error: ${err.message}`);
+  });
+  return res;
+});
 
 ipcMain.handle('local-youtube-auto-run-now', () => {
   runAutoUploadPoller(true);
@@ -1639,6 +1699,14 @@ async function runAutoUploadPoller(isManual = false) {
         }, currentAutoUploadController.signal, 'AUTO');
         if (result.success) {
           localYoutubeUploadUtils.recordAutoUpload(channelId);
+          proEditorYoutubeUtils.recordYoutubeUpload(channelId, {
+            videoId: String(video._id),
+            youtubeVideoId: result.youtubeVideoId,
+            youtubeUrl: result.youtubeUrl,
+            title: videoTitle,
+            mode: 'AUTO',
+            scheduledPublishAt: videoWithOptions.youtubeUploadOptions?.publishAt
+          }).catch(err => log.warn(`[AutoUpload] Server sync record error: ${err.message}`));
           log.info(`[AutoUpload] ${channelId}: success — ${result.youtubeUrl}`);
           sendToAllWindows('local-youtube-auto-log', { type: 'success', ...baseEvent, youtubeUrl: result.youtubeUrl });
         } else {

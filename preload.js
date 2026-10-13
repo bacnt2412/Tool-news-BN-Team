@@ -86,6 +86,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   proEditorCreateChannel: (data) => ipcRenderer.invoke('proeditor-create-channel', data),
   proEditorRemoveChannel: (id) => ipcRenderer.invoke('proeditor-remove-channel', id),
   proEditorChannelVideos: (channelId, page = 1) => ipcRenderer.invoke('proeditor-channel-videos', channelId, page),
+  proEditorChannelWorkStatus: (channelId, status) => ipcRenderer.invoke('proeditor-channel-work-status', channelId, status),
   proEditorYoutubeOAuth: (channelId) => ipcRenderer.invoke('proeditor-youtube-oauth', channelId),
   proEditorYoutubeAutoUpload: (channelId, enabled) => ipcRenderer.invoke('proeditor-youtube-auto-upload', channelId, enabled),
   proEditorYoutubeDisconnect: (channelId) => ipcRenderer.invoke('proeditor-youtube-disconnect', channelId),
@@ -105,6 +106,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   localYoutubeCancelUpload: () => ipcRenderer.invoke('local-youtube-cancel-upload'), // B4
   onLocalYoutubeUploadProgress: (callback) => ipcRenderer.on('local-youtube-upload-progress', (event, data) => callback(data)),
   // Auto-upload
+  localYoutubeSyncFromServer: (channelId, serverConfig) => ipcRenderer.invoke('local-youtube-sync-from-server', channelId, serverConfig),
+  localYoutubeSyncChannel: (channelId, serverConfig, serverWorkStatus) => ipcRenderer.invoke('local-youtube-sync-channel', channelId, serverConfig, serverWorkStatus),
   localYoutubeAutoGet: (channelId) => ipcRenderer.invoke('local-youtube-auto-get', channelId),
   localYoutubeAutoSave: (channelId, config) => ipcRenderer.invoke('local-youtube-auto-save', channelId, config),
   localYoutubeAutoRunNow: () => ipcRenderer.invoke('local-youtube-auto-run-now'),
