@@ -384,6 +384,14 @@ async function downloadSubtitle(videoUrl, videoId, videoInfo, cookieFilePath = n
   const originalLanguages = getOriginalAudioLanguages(videoInfo);
   const captionTracks = findCaptionTrackCandidates(videoInfo);
   if (!captionTracks.length) {
+    const dubOnly = require('./captionSelection').describeDubOnlyCaptions(videoInfo || {});
+    if (dubOnly) {
+      const original = dubOnly.originalLanguages.join(', ') || 'không xác định';
+      throw new Error(
+        `Video không có transcript ngôn ngữ gốc (${original}). YouTube chỉ có transcript của bản lồng tiếng ` +
+        `(${dubOnly.dubCaptionLanguages.join(', ')}), nên không lấy để tránh sai ngôn ngữ.`
+      );
+    }
     throw new Error('Không tìm thấy phụ đề nguồn chưa dịch của video');
   }
   const fallbackLanguages = [...new Set(captionTracks.map(track => track.language))];

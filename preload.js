@@ -92,6 +92,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   proEditorYoutubeDisconnect: (channelId) => ipcRenderer.invoke('proeditor-youtube-disconnect', channelId),
   proEditorYoutubeUploadVideo: (videoId) => ipcRenderer.invoke('proeditor-youtube-upload-video', videoId),
   localYoutubeSelectCredentials: (channelId) => ipcRenderer.invoke('local-youtube-select-credentials', channelId),
+  localYoutubeSaveCredentialsJson: (channelId, jsonText) => ipcRenderer.invoke('local-youtube-save-credentials-json', channelId, jsonText),
   localYoutubeStatus: (channelId) => ipcRenderer.invoke('local-youtube-status', channelId),
   localYoutubeConnect: (channelId, youtubeChannelId) => ipcRenderer.invoke('local-youtube-connect', channelId, youtubeChannelId),
   localYoutubeDisconnect: (channelId) => ipcRenderer.invoke('local-youtube-disconnect', channelId),
@@ -103,6 +104,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   localYoutubeSelectStorageFolder: () => ipcRenderer.invoke('local-youtube-select-storage-folder'),
   localYoutubeUpload: (channelId, video) => ipcRenderer.invoke('local-youtube-upload', channelId, video),
   localYoutubeUploadHistory: (channelId) => ipcRenderer.invoke('local-youtube-upload-history', channelId),
+  localYoutubeClearUploadHistory: (channelId) => ipcRenderer.invoke('local-youtube-clear-upload-history', channelId),
   localYoutubeCancelUpload: () => ipcRenderer.invoke('local-youtube-cancel-upload'), // B4
   onLocalYoutubeUploadProgress: (callback) => ipcRenderer.on('local-youtube-upload-progress', (event, data) => callback(data)),
   // Auto-upload
@@ -114,6 +116,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   localYoutubeAutoLoopStatus: () => ipcRenderer.invoke('local-youtube-auto-loop-status'),
   localYoutubeAutoLoopStart: () => ipcRenderer.invoke('local-youtube-auto-loop-start'),
   localYoutubeAutoLoopStop: () => ipcRenderer.invoke('local-youtube-auto-loop-stop'),
+  localYoutubeAutoThreadsGet: () => ipcRenderer.invoke('local-youtube-auto-threads-get'),
+  localYoutubeAutoThreadsSet: (threads) => ipcRenderer.invoke('local-youtube-auto-threads-set', threads),
+  localYoutubeAutoFailureReset: (channelId, videoId) => ipcRenderer.invoke('local-youtube-auto-failure-reset', channelId, videoId),
+  localYoutubeAutoFailureResetAll: (channelId = null) => ipcRenderer.invoke('local-youtube-auto-failure-reset-all', channelId),
   onLocalYoutubeAutoLoopChanged: (callback) => ipcRenderer.on('local-youtube-auto-loop-changed', (event, data) => callback(data)),
   onLocalYoutubeAutoLog: (callback) => ipcRenderer.on('local-youtube-auto-log', (event, data) => callback(data)),
   onUpdateStatus: (callback) => {

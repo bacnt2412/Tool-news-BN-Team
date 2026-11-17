@@ -1452,6 +1452,8 @@ ipcMain.handle('proeditor-youtube-upload-video', (event, videoId) =>
   proEditorYoutubeUtils.upload(videoId));
 ipcMain.handle('local-youtube-select-credentials', (event, channelId) =>
   localYoutubeUploadUtils.selectCredentials(channelId));
+ipcMain.handle('local-youtube-save-credentials-json', (event, channelId, jsonText) =>
+  localYoutubeUploadUtils.saveCredentialsJson(channelId, jsonText));
 ipcMain.handle('local-youtube-status', (event, channelId) =>
   localYoutubeUploadUtils.status(channelId));
 ipcMain.handle('local-youtube-connect', (event, channelId, youtubeChannelId) =>
@@ -1463,10 +1465,9 @@ ipcMain.handle('local-youtube-proxy-get', (event, channelId) =>
   localYoutubeUploadUtils.getProxyConfig(channelId));
 ipcMain.handle('local-youtube-proxy-save', async (event, channelId, config) => {
   localYoutubeUploadUtils.saveProxyConfig(channelId, config);
-  proEditorYoutubeUtils.saveYoutubeConfig(channelId, { proxy: config }).catch(err => {
-    log.warn(`[ProxySave] Server sync error: ${err.message}`);
-  });
-  return { success: true };
+  const saved = localYoutubeUploadUtils.getProxyConfig(channelId);
+  const server = await pushYoutubeConfig(channelId, { proxy: saved }, 'ProxySave');
+  return { success: true, serverSynced: server.success, serverError: server.error };
 });
 ipcMain.handle('local-youtube-proxy-test', async (event, config) => {
   try {
@@ -1497,7 +1498,18 @@ ipcMain.handle('local-youtube-select-storage-folder', () =>
 // B4: Map webContentsId -> AbortController so each window has its own cancel handle
 const youtubeUploadControllers = new Map();
 
+// Videos currently being uploaded (videoId -> 'AUTO' | 'MANUAL'). Shared by manual
+// uploads and auto-upload workers so the same video is never uploaded twice at once
+// (both would also write to the same local .mp4 file).
+const inFlightVideos = new Map();
+
 ipcMain.handle('local-youtube-upload', async (event, channelId, video) => {
+  const videoKey = String(video?._id || '');
+  if (videoKey && inFlightVideos.has(videoKey)) {
+    const by = inFlightVideos.get(videoKey) === 'AUTO' ? 'Auto Upload' : 'một upload thủ công khác';
+    return { success: false, error: `Video này đang được ${by} xử lý. Vui lòng đợi hoàn tất.` };
+  }
+  if (videoKey) inFlightVideos.set(videoKey, 'MANUAL');
   const wid = event.sender.id;
   const controller = new AbortController();
   youtubeUploadControllers.set(wid, controller);
@@ -1518,6 +1530,7 @@ ipcMain.handle('local-youtube-upload', async (event, channelId, video) => {
   try {
     const result = await localYoutubeUploadUtils.upload(channelId, video, sendProgress, controller.signal, 'MANUAL');
     if (result.success) {
+      if (videoKey) localYoutubeUploadUtils.clearAutoFailure(channelId, videoKey);
       proEditorYoutubeUtils.recordYoutubeUpload(channelId, {
         videoId: String(video?._id),
         youtubeVideoId: result.youtubeVideoId,
@@ -1525,7 +1538,7 @@ ipcMain.handle('local-youtube-upload', async (event, channelId, video) => {
         title: video?.aiTitle || video?.name || result.title,
         mode: 'MANUAL',
         scheduledPublishAt: video?.youtubeUploadOptions?.publishAt
-      }).catch(err => log.warn(`[ManualUpload] Server sync record error: ${err.message}`));
+      }).then(res => { if (!res?.success) log.warn(`[ManualUpload] Server record failed: ${res?.status || ''} ${res?.error || 'unknown'}`); });
     }
     return result;
   } catch (error) {
@@ -1533,6 +1546,7 @@ ipcMain.handle('local-youtube-upload', async (event, channelId, video) => {
     return { success: false, cancelled, error: cancelled ? 'Upload da bi huy.' : (error.response?.data?.error?.message || error.message) };
   } finally {
     youtubeUploadControllers.delete(wid);
+    if (videoKey) inFlightVideos.delete(videoKey);
   }
 });
 
@@ -1546,6 +1560,13 @@ ipcMain.handle('local-youtube-cancel-upload', event => {
 ipcMain.handle('local-youtube-upload-history', (event, channelId) =>
   localYoutubeUploadUtils.uploadHistory(channelId));
 
+ipcMain.handle('local-youtube-clear-upload-history', async (event, channelId) => {
+  if (!channelId) return { success: false, error: 'Thiếu channelId' };
+  const res = localYoutubeUploadUtils.clearUploadHistory(channelId);
+  const server = await pushYoutubeConfig(channelId, { uploads: {} }, 'ClearHistory');
+  return { ...res, serverCleared: server.success };
+});
+
 
 ipcMain.handle('local-youtube-sync-from-server', (event, channelId, serverConfig) => {
   localYoutubeUploadUtils.syncFromServer(channelId, serverConfig);
@@ -1556,87 +1577,141 @@ ipcMain.handle('local-youtube-sync-channel', async (event, channelId, serverConf
   if (!channelId) return { success: false };
   const localData = localYoutubeUploadUtils.getSyncPayload(channelId);
 
-  // 1. If server has config or workStatus, merge to local
-  localYoutubeUploadUtils.syncFromServer(channelId, serverConfig, serverWorkStatus);
+  // 1. Merge server -> local. Sections where local is newer are NOT overwritten;
+  //    they are returned in `push` so we send them to the server instead.
+  const { push = [] } = localYoutubeUploadUtils.syncFromServer(channelId, serverConfig, serverWorkStatus) || {};
 
-  // 2. If local has data that server is missing -> automatically push to server!
-  const hasLocalAuto = Boolean(localData?.autoUpload && Object.keys(localData.autoUpload).length > 0);
-  const hasLocalProxy = Boolean(localData?.proxy && localData.proxy.enabled);
+  // 2. Push local data the server is missing or has an older copy of.
   const localUploads = localData?.uploads || {};
-  const hasLocalUploads = Object.keys(localUploads).length > 0;
-
   const serverUploads = serverConfig?.uploads || {};
   const serverMissingUploads = Object.keys(localUploads).some(id => !serverUploads[id]);
-  const serverMissingAuto = hasLocalAuto && (!serverConfig?.autoUpload || !serverConfig.autoUpload.scheduledTimes?.length);
-  const serverMissingProxy = hasLocalProxy && (!serverConfig?.proxy || !serverConfig.proxy.host);
 
-  if (serverMissingAuto || serverMissingProxy || serverMissingUploads) {
+  if (push.length || serverMissingUploads) {
+    const merged = localYoutubeUploadUtils.getSyncPayload(channelId) || {};
     const payload = {};
-    if (hasLocalAuto) payload.autoUpload = localData.autoUpload;
-    if (hasLocalProxy) payload.proxy = localData.proxy;
-    if (hasLocalUploads) payload.uploads = { ...serverUploads, ...localUploads };
-
-    await proEditorYoutubeUtils.saveYoutubeConfig(channelId, payload).catch(err => {
-      log.warn(`[Sync] Failed to push local data to server for ${channelId}: ${err.message}`);
-    });
+    if (push.includes('autoUpload')) payload.autoUpload = merged.autoUpload;
+    if (push.includes('proxy')) payload.proxy = merged.proxy;
+    if (serverMissingUploads) payload.uploads = { ...serverUploads, ...localUploads };
+    const res = await pushYoutubeConfig(channelId, payload, 'Sync');
+    if (!res.success) return { success: true, serverSynced: false, error: res.error };
   }
 
-  return { success: true };
+  return { success: true, serverSynced: true };
 });
+
+/**
+ * Save youtube config to ProEditor. proEditorYoutubeUtils.request() never throws —
+ * it resolves { success:false } — so failures must be checked explicitly (the old
+ * `.catch()` never fired, leaving the server with a stale copy unnoticed).
+ */
+async function pushYoutubeConfig(channelId, payload, label) {
+  const res = await proEditorYoutubeUtils.saveYoutubeConfig(channelId, payload);
+  if (!res?.success) {
+    log.warn(`[${label}] Server save failed for ${channelId} (${Object.keys(payload).join(',')}): ${res?.status || ''} ${res?.error || 'unknown'}`);
+    return { success: false, error: res?.error || 'Không lưu được lên server ProEditor' };
+  }
+  return { success: true };
+}
 
 ipcMain.handle('local-youtube-auto-get', (event, channelId) =>
   localYoutubeUploadUtils.autoStatus(channelId));
 
 ipcMain.handle('local-youtube-auto-save', async (event, channelId, config) => {
   const res = localYoutubeUploadUtils.saveAutoConfig(channelId, config);
-  proEditorYoutubeUtils.saveYoutubeConfig(channelId, { autoUpload: config }).catch(err => {
-    log.warn(`[AutoSave] Server sync error: ${err.message}`);
-  });
-  return res;
+  const server = await pushYoutubeConfig(channelId, { autoUpload: res.config }, 'AutoSave');
+  return { success: true, serverSynced: server.success, serverError: server.error };
 });
 
 ipcMain.handle('local-youtube-auto-run-now', () => {
-  runAutoUploadPoller(true);
+  autoUploadCooldowns.clear();
+  autoUploadTransientStreaks.clear();
+  if (autoUploadLoopActive) {
+    ensureAutoUploadWorkers();
+    wakeAutoUploadWorkers();
+  } else {
+    // One-shot pass: every eligible channel is processed at most once, using N threads.
+    if (autoUploadWorkerCount === 0) autoUploadOnceVisited.clear();
+    autoUploadOnceActive = true;
+    log.info('[AutoUpload] Manual one-shot pass triggered.');
+    ensureAutoUploadWorkers();
+  }
   return { triggered: true };
 });
 
-ipcMain.handle('local-youtube-auto-loop-status', () => ({
-  active: autoUploadLoopActive,
-  running: autoUploadRunning
-}));
+ipcMain.handle('local-youtube-auto-loop-status', () => autoLoopStatus());
+
+// Let auto-upload retry a video that was skipped after repeated failures.
+ipcMain.handle('local-youtube-auto-failure-reset', (event, channelId, videoId) => {
+  if (!channelId || !videoId) return { success: false, error: 'Thiếu channelId hoặc videoId' };
+  const res = localYoutubeUploadUtils.clearAutoFailure(channelId, videoId);
+  autoUploadCooldowns.delete(channelId);
+  autoUploadTransientStreaks.delete(channelId);
+  if (autoUploadLoopActive) wakeAutoUploadWorkers();
+  log.info(`[AutoUpload] ${channelId}: failure record reset for video ${videoId}.`);
+  return res;
+});
+
+ipcMain.handle('local-youtube-auto-failure-reset-all', (event, channelId = null) => {
+  const res = localYoutubeUploadUtils.clearAllAutoFailures(channelId);
+  if (channelId) {
+    autoUploadCooldowns.delete(channelId);
+    autoUploadTransientStreaks.delete(channelId);
+  } else {
+    autoUploadCooldowns.clear();
+    autoUploadTransientStreaks.clear();
+  }
+  if (autoUploadLoopActive) wakeAutoUploadWorkers();
+  log.info(`[AutoUpload] Bulk failure reset (${channelId || 'all'}): cleared ${res.clearedVideos} videos across ${res.clearedChannels} channels.`);
+  return res;
+});
+
+ipcMain.handle('local-youtube-auto-threads-get', () => ({ threads: getAutoUploadThreads(), min: AUTO_UPLOAD_MIN_THREADS, max: AUTO_UPLOAD_MAX_THREADS }));
+
+ipcMain.handle('local-youtube-auto-threads-set', (event, value) => {
+  const threads = clampAutoUploadThreads(value);
+  store.set(AUTO_UPLOAD_THREADS_KEY, threads);
+  log.info(`[AutoUpload] Threads set to ${threads}.`);
+  if (autoUploadLoopActive || autoUploadOnceActive) {
+    ensureAutoUploadWorkers();
+    // Wake idle workers so surplus ones (when N decreased) exit promptly.
+    wakeAutoUploadWorkers();
+  }
+  broadcastAutoLoopStatus();
+  return { success: true, threads };
+});
 
 ipcMain.handle('local-youtube-auto-loop-start', () => {
   if (!autoUploadLoopActive) {
     autoUploadLoopActive = true;
-    if (autoUploadTimer) clearInterval(autoUploadTimer);
-    autoUploadTimer = setInterval(() => {
-      if (autoUploadLoopActive) runAutoUploadPoller();
-    }, AUTO_UPLOAD_INTERVAL_MS);
-    log.info('[AutoUpload] Loop started by user.');
+    autoUploadCooldowns.clear();
+    autoUploadTransientStreaks.clear();
+    log.info(`[AutoUpload] Loop started by user (threads=${getAutoUploadThreads()}).`);
     broadcastAutoLoopStatus();
-    runAutoUploadPoller();
+    ensureAutoUploadWorkers();
+    wakeAutoUploadWorkers();
   }
   return { success: true, active: true };
 });
 
 ipcMain.handle('local-youtube-auto-loop-stop', () => {
   autoUploadLoopActive = false;
-  if (autoUploadTimer) {
-    clearInterval(autoUploadTimer);
-    autoUploadTimer = null;
+  autoUploadOnceActive = false;
+  autoUploadOnceVisited.clear();
+  // Invalidate every running worker, cancel all in-progress auto uploads.
+  autoUploadGeneration += 1;
+  for (const controller of autoUploadControllers.values()) {
+    try { controller.abort(); } catch (_) {}
   }
-  if (currentAutoUploadController) {
-    try {
-      currentAutoUploadController.abort();
-    } catch (_) {}
-    currentAutoUploadController = null;
-  }
+  wakeAutoUploadWorkers();
   log.info('[AutoUpload] Loop stopped by user.');
   broadcastAutoLoopStatus();
   return { success: true, active: false };
 });
 
-// ─── Auto-upload Poller ───────────────────────────────────────────────────────
+// ─── Auto-upload Worker Pool ──────────────────────────────────────────────────
+// N workers run continuously. Each worker claims one eligible channel at a time
+// (a channel is never processed by two workers at once), uploads its next video,
+// then claims the next channel. Idle workers sleep and can be woken early.
 
 function sendToAllWindows(channel, data) {
   for (const win of BrowserWindow.getAllWindows()) {
@@ -1644,84 +1719,275 @@ function sendToAllWindows(channel, data) {
   }
 }
 
-let autoUploadRunning = false;
+const AUTO_UPLOAD_INTERVAL_MS = 5 * 60 * 1000; // cooldown after a permanent video failure
+const AUTO_TRANSIENT_BASE_MS = 2 * 60 * 1000;  // progressive backoff base on transient 5xx/network errors
+const AUTO_TRANSIENT_MAX_MS = 15 * 60 * 1000;  // max backoff for transient errors
+const AUTO_CHANNEL_ERROR_MS = 30 * 60 * 1000;  // cooldown on channel OAuth/quota errors
+const AUTO_UPLOAD_IDLE_MS = 60 * 1000;         // idle sleep / "no new video" cooldown
+const AUTO_UPLOAD_THREADS_KEY = 'youtubeAutoUpload.threads';
+const AUTO_UPLOAD_MIN_THREADS = 1;
+const AUTO_UPLOAD_MAX_THREADS = 10;
+
 let autoUploadLoopActive = false;
-let autoUploadTimer = null;
-let currentAutoUploadController = null;
-const AUTO_UPLOAD_INTERVAL_MS = 5 * 60 * 1000;
+let autoUploadOnceActive = false;          // one-shot pass from "Chạy ngay" while loop is off
+let autoUploadWorkerCount = 0;
+let autoUploadWorkerSeq = 0;
+let autoUploadGeneration = 0;              // bumped on stop to invalidate running workers
+const autoUploadActiveChannels = new Set();  // channels currently claimed by a worker
+const autoUploadControllers = new Map();     // channelId -> AbortController
+const autoUploadCooldowns = new Map();       // channelId -> timestamp until which it is skipped
+const autoUploadTransientStreaks = new Map();// channelId -> consecutive transient failure count
+const autoUploadOnceVisited = new Set();     // channels already handled in the current one-shot pass
+const autoUploadSleepers = new Set();
+
+function clampAutoUploadThreads(value) {
+  const n = parseInt(value, 10);
+  if (!Number.isFinite(n)) return AUTO_UPLOAD_MIN_THREADS;
+  return Math.max(AUTO_UPLOAD_MIN_THREADS, Math.min(AUTO_UPLOAD_MAX_THREADS, n));
+}
+
+function getAutoUploadThreads() {
+  return clampAutoUploadThreads(store.get(AUTO_UPLOAD_THREADS_KEY, AUTO_UPLOAD_MIN_THREADS));
+}
+
+function autoLoopStatus() {
+  return {
+    active: autoUploadLoopActive,
+    running: autoUploadActiveChannels.size > 0,
+    activeUploads: autoUploadActiveChannels.size,
+    workers: autoUploadWorkerCount,
+    threads: getAutoUploadThreads()
+  };
+}
 
 function broadcastAutoLoopStatus() {
-  sendToAllWindows('local-youtube-auto-loop-changed', {
-    active: autoUploadLoopActive,
-    running: autoUploadRunning
+  sendToAllWindows('local-youtube-auto-loop-changed', autoLoopStatus());
+}
+
+function autoUploadSleep(ms) {
+  return new Promise(resolve => {
+    const done = () => {
+      clearTimeout(timer);
+      autoUploadSleepers.delete(done);
+      resolve();
+    };
+    const timer = setTimeout(done, ms);
+    autoUploadSleepers.add(done);
   });
 }
 
-async function runAutoUploadPoller(isManual = false) {
-  if (autoUploadRunning) return;
-  autoUploadRunning = true;
+function wakeAutoUploadWorkers() {
+  for (const wake of [...autoUploadSleepers]) wake();
+}
+
+function ensureAutoUploadWorkers() {
+  const target = getAutoUploadThreads();
+  while (autoUploadWorkerCount < target) {
+    autoUploadWorkerCount += 1;
+    autoUploadWorkerSeq += 1;
+    const id = autoUploadWorkerSeq;
+    autoUploadWorker(id, autoUploadGeneration).catch(err => log.error(`[AutoUpload] Worker ${id} crashed: ${err.message}`));
+  }
   broadcastAutoLoopStatus();
+}
+
+/**
+ * Synchronously pick and lock the next eligible channel. Because this runs without
+ * any await, two workers can never claim the same channel.
+ */
+function claimNextAutoUploadChannel() {
+  const now = Date.now();
+  for (const channelId of localYoutubeUploadUtils.allChannelIds()) {
+    if (autoUploadActiveChannels.has(channelId)) continue;
+    if ((autoUploadCooldowns.get(channelId) || 0) > now) continue;
+    if (!autoUploadLoopActive && autoUploadOnceVisited.has(channelId)) continue;
+    const check = localYoutubeUploadUtils.shouldAutoUpload(channelId);
+    if (!check.ok) continue;
+    autoUploadActiveChannels.add(channelId);
+    autoUploadOnceVisited.add(channelId);
+    return channelId;
+  }
+  return null;
+}
+
+async function autoUploadWorker(workerId, generation) {
+  log.info(`[AutoUpload] Worker ${workerId} started.`);
   try {
-    const channelIds = localYoutubeUploadUtils.allChannelIds();
-    log.info(`[AutoUpload] Poller tick — ${channelIds.length} channel(s) found. (active=${autoUploadLoopActive}, manual=${isManual})`);
-    for (const channelId of channelIds) {
-      if (!autoUploadLoopActive && !isManual) {
-        log.info(`[AutoUpload] Loop stopped. Halting remaining channel checks.`);
-        break;
+    while (true) {
+      if (generation !== autoUploadGeneration) break;
+      if (!autoUploadLoopActive && !autoUploadOnceActive) break;
+      // Surplus worker after N was decreased: exit (count is decremented in finally,
+      // synchronously after this break, so other workers see the updated value).
+      if (autoUploadWorkerCount > getAutoUploadThreads()) break;
+
+      const channelId = claimNextAutoUploadChannel();
+      if (!channelId) {
+        if (autoUploadLoopActive) { await autoUploadSleep(AUTO_UPLOAD_IDLE_MS); continue; }
+        break; // one-shot pass finished for this worker
       }
-      const check = localYoutubeUploadUtils.shouldAutoUpload(channelId);
-      if (!check.ok) { log.info(`[AutoUpload] ${channelId}: skipped — ${check.reason}`); continue; }
-      const videosResult = await proEditorYoutubeUtils.videos(channelId, 1);
-      if (!videosResult.success) { log.warn(`[AutoUpload] ${channelId}: ProEditor error — ${videosResult.error}`); continue; }
-      const localStatus = localYoutubeUploadUtils.status(channelId);
-      const uploadedIds = new Set(Object.keys(localStatus.uploads || {}));
-      const video = videosResult.videos.find(v => !uploadedIds.has(String(v._id)));
-      if (!video) { log.info(`[AutoUpload] ${channelId}: no new videos.`); continue; }
-      const cfg = localYoutubeUploadUtils.autoConfig(channelId);
-      const publishAt = localYoutubeUploadUtils.nextPublishAt(channelId);
-      const videoWithOptions = { ...video, youtubeUploadOptions: { privacyStatus: cfg.privacyStatus, publishAt } };
-      const videoTitle = video.aiTitle || video.name || video._id;
-      log.info(`[AutoUpload] ${channelId}: uploading "${videoTitle}" ...`);
-      const baseEvent = { channelId, videoId: String(video._id), videoTitle };
-      sendToAllWindows('local-youtube-auto-log', { type: 'start', ...baseEvent });
-      // Throttle: only emit progress when stage changes or percent jumps ≥5%
-      let lastStage = ''; let lastPct = -1;
-      currentAutoUploadController = new AbortController();
+      broadcastAutoLoopStatus();
       try {
-        const result = await localYoutubeUploadUtils.upload(channelId, videoWithOptions, progress => {
-          const pct = Math.round(progress.percent || 0);
-          const stageChanged = progress.stage !== lastStage;
-          if (stageChanged) { lastStage = progress.stage; lastPct = -1; }
-          const pctJumped = pct >= lastPct + 5 || (pct === 100 && lastPct < 100);
-          if (!pctJumped) return;
-          lastPct = pct === 100 ? 101 : pct; // 101 blocks any subsequent 100% for this stage
-          sendToAllWindows('local-youtube-auto-log', { type: 'progress', ...baseEvent, ...progress, percent: pct });
-        }, currentAutoUploadController.signal, 'AUTO');
-        if (result.success) {
-          localYoutubeUploadUtils.recordAutoUpload(channelId);
-          proEditorYoutubeUtils.recordYoutubeUpload(channelId, {
-            videoId: String(video._id),
-            youtubeVideoId: result.youtubeVideoId,
-            youtubeUrl: result.youtubeUrl,
-            title: videoTitle,
-            mode: 'AUTO',
-            scheduledPublishAt: videoWithOptions.youtubeUploadOptions?.publishAt
-          }).catch(err => log.warn(`[AutoUpload] Server sync record error: ${err.message}`));
-          log.info(`[AutoUpload] ${channelId}: success — ${result.youtubeUrl}`);
-          sendToAllWindows('local-youtube-auto-log', { type: 'success', ...baseEvent, youtubeUrl: result.youtubeUrl });
-        } else {
-          log.warn(`[AutoUpload] ${channelId}: failed — ${result.error}`);
-          sendToAllWindows('local-youtube-auto-log', { type: 'error', ...baseEvent, error: result.error });
-        }
-      } catch (err) {
-        log.error(`[AutoUpload] ${channelId}: exception — ${err.message}`);
-        sendToAllWindows('local-youtube-auto-log', { type: 'error', ...baseEvent, error: err.message });
+        await processAutoUploadChannel(channelId, generation);
       } finally {
-        currentAutoUploadController = null;
+        autoUploadActiveChannels.delete(channelId);
+        broadcastAutoLoopStatus();
       }
     }
   } finally {
-    autoUploadRunning = false;
+    autoUploadWorkerCount -= 1;
+    if (autoUploadWorkerCount === 0 && autoUploadOnceActive) {
+      autoUploadOnceActive = false;
+      autoUploadOnceVisited.clear();
+      log.info('[AutoUpload] One-shot pass finished.');
+    }
+    log.info(`[AutoUpload] Worker ${workerId} stopped.`);
+    // Stale workers (stopped then restarted quickly) free their slot late: refill the pool.
+    // Only for stale workers — a worker that exits because there is no more work must not respawn.
+    if (generation !== autoUploadGeneration && (autoUploadLoopActive || autoUploadOnceActive)
+        && autoUploadWorkerCount < getAutoUploadThreads()) {
+      setImmediate(ensureAutoUploadWorkers);
+    }
     broadcastAutoLoopStatus();
+  }
+}
+
+async function processAutoUploadChannel(channelId, generation) {
+  const videosResult = await proEditorYoutubeUtils.videos(channelId, 1);
+  if (generation !== autoUploadGeneration) return;
+  if (!videosResult.success) {
+    log.warn(`[AutoUpload] ${channelId}: ProEditor error — ${videosResult.error}`);
+    autoUploadCooldowns.set(channelId, Date.now() + AUTO_UPLOAD_IDLE_MS);
+    return;
+  }
+  // State may have changed while waiting (paused, limit reached by another flow...)
+  const recheck = localYoutubeUploadUtils.shouldAutoUpload(channelId);
+  if (!recheck.ok) { log.info(`[AutoUpload] ${channelId}: skipped — ${recheck.reason}`); return; }
+
+  const localStatus = localYoutubeUploadUtils.status(channelId);
+  const uploadedIds = new Set(Object.keys(localStatus.uploads || {}));
+  const skippedIds = localYoutubeUploadUtils.autoSkippedVideoIds(channelId);
+  const video = videosResult.videos.find(v => {
+    const id = String(v._id);
+    return !uploadedIds.has(id) && !inFlightVideos.has(id) && !skippedIds.has(id);
+  });
+  if (!video) {
+    log.info(`[AutoUpload] ${channelId}: no new videos${skippedIds.size ? ` (${skippedIds.size} skipped after repeated failures)` : ''}.`);
+    autoUploadCooldowns.set(channelId, Date.now() + AUTO_UPLOAD_IDLE_MS);
+    return;
+  }
+
+  const videoKey = String(video._id);
+  inFlightVideos.set(videoKey, 'AUTO');
+  const controller = new AbortController();
+  autoUploadControllers.set(channelId, controller);
+  const cfg = localYoutubeUploadUtils.autoConfig(channelId);
+  const publishAt = localYoutubeUploadUtils.nextPublishAt(channelId);
+  const videoWithOptions = { ...video, youtubeUploadOptions: { privacyStatus: cfg.privacyStatus, publishAt } };
+  const videoTitle = video.aiTitle || video.name || video._id;
+  log.info(`[AutoUpload] ${channelId}: uploading "${videoTitle}" ...`);
+  const baseEvent = { channelId, videoId: videoKey, videoTitle };
+  sendToAllWindows('local-youtube-auto-log', { type: 'start', ...baseEvent });
+  // Throttle: only emit progress when stage changes or percent jumps ≥5%
+  let lastStage = ''; let lastPct = -1;
+  try {
+    const result = await localYoutubeUploadUtils.upload(channelId, videoWithOptions, progress => {
+      const pct = Math.round(progress.percent || 0);
+      const stageChanged = progress.stage !== lastStage;
+      if (stageChanged) { lastStage = progress.stage; lastPct = -1; }
+      const pctJumped = pct >= lastPct + 5 || (pct === 100 && lastPct < 100);
+      if (!pctJumped) return;
+      lastPct = pct === 100 ? 101 : pct; // 101 blocks any subsequent 100% for this stage
+      sendToAllWindows('local-youtube-auto-log', { type: 'progress', ...baseEvent, ...progress, percent: pct });
+    }, controller.signal, 'AUTO');
+    if (result.success) {
+      localYoutubeUploadUtils.recordAutoUpload(channelId);
+      proEditorYoutubeUtils.recordYoutubeUpload(channelId, {
+        videoId: videoKey,
+        youtubeVideoId: result.youtubeVideoId,
+        youtubeUrl: result.youtubeUrl,
+        title: videoTitle,
+        mode: 'AUTO',
+        scheduledPublishAt: videoWithOptions.youtubeUploadOptions?.publishAt
+      }).then(res => { if (!res?.success) log.warn(`[AutoUpload] Server record failed: ${res?.status || ''} ${res?.error || 'unknown'}`); });
+      log.info(`[AutoUpload] ${channelId}: success — ${result.youtubeUrl}`);
+      autoUploadTransientStreaks.delete(channelId);
+      localYoutubeUploadUtils.clearAutoFailure(channelId, videoKey);
+      sendToAllWindows('local-youtube-auto-log', { type: 'success', ...baseEvent, youtubeUrl: result.youtubeUrl });
+    } else {
+      log.warn(`[AutoUpload] ${channelId}: failed — ${result.error}`);
+      handleAutoUploadFailure(channelId, baseEvent, result.error, controller.signal.aborted);
+    }
+  } catch (err) {
+    log.error(`[AutoUpload] ${channelId}: exception — ${err.message}`);
+    handleAutoUploadFailure(channelId, baseEvent, err, controller.signal.aborted);
+  } finally {
+    autoUploadControllers.delete(channelId);
+    inFlightVideos.delete(videoKey);
+  }
+}
+
+/**
+ * Handle a failed auto-upload attempt:
+ * - User cancellations (Stop) are not counted.
+ * - Transient server/network/proxy errors (5xx, aborted, ECONNRESET...) back off the channel
+ *   progressively without incrementing the video's permanent 3-strike skip counter.
+ * - Channel auth/quota errors pause the channel for 30m without blaming the video.
+ * - Only video-specific errors count toward AUTO_SKIP_AFTER_FAILURES.
+ */
+function handleAutoUploadFailure(channelId, baseEvent, rawError, cancelled) {
+  const errorText = typeof rawError === 'string' ? rawError : (rawError?.message || String(rawError || 'Lỗi upload'));
+  if (cancelled || errorText === 'Upload đã bị hủy.') {
+    sendToAllWindows('local-youtube-auto-log', { type: 'error', ...baseEvent, error: 'Upload đã bị hủy.' });
+    return;
+  }
+
+  const classified = localYoutubeUploadUtils.classifyUploadError(rawError);
+  if (classified.kind === 'transient') {
+    const streak = (autoUploadTransientStreaks.get(channelId) || 0) + 1;
+    autoUploadTransientStreaks.set(channelId, streak);
+    const cooldownMs = Math.min(AUTO_TRANSIENT_MAX_MS, AUTO_TRANSIENT_BASE_MS * Math.pow(2, streak - 1));
+    const cooldownMinutes = Math.max(1, Math.round(cooldownMs / 60000));
+    autoUploadCooldowns.set(channelId, Date.now() + cooldownMs);
+    log.warn(`[AutoUpload] ${channelId}: transient error (#${streak}, retry in ${cooldownMinutes}m, video NOT skipped) — ${errorText}`);
+    sendToAllWindows('local-youtube-auto-log', {
+      type: 'error',
+      errorKind: 'transient',
+      cooldownMinutes,
+      ...baseEvent,
+      error: errorText,
+    });
+    return;
+  }
+
+  if (classified.kind === 'channel') {
+    const cooldownMinutes = Math.max(1, Math.round(AUTO_CHANNEL_ERROR_MS / 60000));
+    autoUploadCooldowns.set(channelId, Date.now() + AUTO_CHANNEL_ERROR_MS);
+    log.warn(`[AutoUpload] ${channelId}: channel/auth/quota error (paused ${cooldownMinutes}m, video NOT skipped) — ${errorText}`);
+    sendToAllWindows('local-youtube-auto-log', {
+      type: 'error',
+      errorKind: 'channel',
+      cooldownMinutes,
+      ...baseEvent,
+      error: errorText,
+    });
+    return;
+  }
+
+  autoUploadTransientStreaks.delete(channelId);
+  const failure = localYoutubeUploadUtils.recordAutoFailure(channelId, baseEvent.videoId, errorText, baseEvent.videoTitle);
+  sendToAllWindows('local-youtube-auto-log', {
+    type: 'error',
+    errorKind: 'video',
+    ...baseEvent,
+    error: errorText,
+    attempt: failure.count,
+    maxAttempts: failure.max,
+  });
+  if (failure.skipped) {
+    log.warn(`[AutoUpload] ${channelId}: video ${baseEvent.videoId} skipped after ${failure.count} failed attempts.`);
+    sendToAllWindows('local-youtube-auto-log', { type: 'skip', ...baseEvent, error: errorText, attempt: failure.count, maxAttempts: failure.max });
+    autoUploadCooldowns.delete(channelId);
+  } else {
+    autoUploadCooldowns.set(channelId, Date.now() + AUTO_UPLOAD_INTERVAL_MS);
   }
 }

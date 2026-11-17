@@ -460,6 +460,11 @@ https://www.youtube.com/watch?v=..."
                             <span id="youtube-auto-loop-badge" class="youtube-badge">Auto: Chưa chạy</span>
                         </div>
                         <div class="youtube-actions">
+                            <label class="youtube-threads-field" for="youtube-auto-threads" title="Số kênh được Auto Upload song song cùng lúc (1–10). Mỗi kênh chỉ upload 1 video tại một thời điểm.">
+                                <span>Số luồng</span>
+                                <input id="youtube-auto-threads" type="number" min="1" max="10" step="1" value="1" inputmode="numeric" aria-describedby="youtube-auto-threads-hint" />
+                            </label>
+                            <span id="youtube-auto-threads-hint" class="visually-hidden">Số kênh upload song song, từ 1 đến 10</span>
                             <button id="youtube-auto-toggle-btn" class="btn-auto-toggle state-stopped" type="button" title="Bật/Tắt luồng tự động upload cho tất cả các kênh">
                                 <span class="btn-auto-dot"></span>
                                 <span id="youtube-auto-toggle-text">Bắt đầu Auto Upload</span>
@@ -547,10 +552,31 @@ https://www.youtube.com/watch?v=..."
                                     <h4>1. OAuth Client JSON</h4>
                                     <span id="ch-settings-json-badge" class="youtube-badge">Chưa cài</span>
                                 </div>
-                                <p class="settings-help">File JSON thông tin xác thực OAuth Client (loại Desktop app) tải từ Google Cloud Console.</p>
-                                <div class="settings-row" style="margin-top:10px; display:flex; align-items:center; gap:10px;">
-                                    <button id="ch-settings-select-json-btn" type="button" class="btn-secondary">📂 Chọn / Đổi OAuth JSON</button>
+                                <p class="settings-help">Chọn file JSON hoặc dán trực tiếp nội dung OAuth Client (loại Desktop app) tải từ Google Cloud Console.</p>
+                                <div class="settings-row oauth-json-actions-row">
+                                    <button id="ch-settings-select-json-btn" type="button" class="btn-secondary">📂 Chọn / Đổi file JSON</button>
+                                    <button id="ch-settings-toggle-paste-json-btn" type="button" class="btn-secondary" aria-expanded="false" aria-controls="ch-settings-paste-json-box">📋 Dán text JSON</button>
                                     <span id="ch-settings-json-project" class="youtube-muted"></span>
+                                </div>
+                                <div id="ch-settings-paste-json-box" class="oauth-json-paste-box">
+                                    <div class="oauth-json-paste-header">
+                                        <label for="ch-settings-json-textarea">Nội dung OAuth Client JSON</label>
+                                        <span class="youtube-muted">Ctrl + Enter để lưu nhanh</span>
+                                    </div>
+                                    <textarea
+                                        id="ch-settings-json-textarea"
+                                        class="settings-input oauth-json-textarea"
+                                        rows="5"
+                                        spellcheck="false"
+                                        placeholder='{"installed":{"client_id":"...apps.googleusercontent.com","project_id":"...","client_secret":"GOCSPX-..."}}'
+                                    ></textarea>
+                                    <div class="oauth-json-paste-footer">
+                                        <button id="ch-settings-clipboard-paste-btn" type="button" class="btn-secondary oauth-json-btn-sm">📥 Dán từ Clipboard</button>
+                                        <div class="oauth-json-paste-submit">
+                                            <button id="ch-settings-cancel-json-btn" type="button" class="btn-secondary oauth-json-btn-sm">Hủy</button>
+                                            <button id="ch-settings-save-json-btn" type="button" class="btn-primary oauth-json-btn-sm">💾 Lưu JSON</button>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
 
@@ -665,7 +691,8 @@ https://www.youtube.com/watch?v=..."
                     <div class="modal-header">
                         <h2>📋 Nhật ký Upload Tự Động</h2>
                         <span id="youtube-auto-log-status-badge" class="youtube-badge" style="margin-left: 10px;">Auto: Chưa chạy</span>
-                        <button id="youtube-auto-run-now-btn" class="btn-primary" style="margin-left:auto;font-size:var(--text-xs);padding:4px 10px">&#x25B6; Ch&#x1ea1;y ngay</button>
+                        <button id="youtube-auto-reset-skips-btn" class="btn-secondary" type="button" title="Mở khóa toàn bộ video đang bị Auto bỏ qua trên tất cả các kênh" style="margin-left:auto;font-size:var(--text-xs);padding:4px 10px">↺ Mở khóa video bỏ qua</button>
+                        <button id="youtube-auto-run-now-btn" class="btn-primary" type="button" style="margin-left:6px;font-size:var(--text-xs);padding:4px 10px">&#x25B6; Ch&#x1ea1;y ngay</button>
                         <span class="close" id="youtube-auto-log-close">&times;</span>
                     </div>
                     <div id="youtube-auto-log-body" class="youtube-auto-log-body"></div>
@@ -680,6 +707,7 @@ https://www.youtube.com/watch?v=..."
                             <h2 id="youtube-history-title">📜 Lịch sử Upload</h2>
                             <div id="youtube-history-subtitle" class="youtube-muted"></div>
                         </div>
+                        <button id="youtube-history-clear" class="btn-secondary" style="display:none;margin-left:auto;margin-right:12px;" title="Xóa toàn bộ lịch sử upload (local + server)">🗑 Xóa lịch sử</button>
                         <span class="close" id="youtube-history-close">&times;</span>
                     </div>
                     <div id="youtube-history-body" class="youtube-history-body"></div>

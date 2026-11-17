@@ -58,10 +58,52 @@ const getUntranslatedCaptions = captions => Object.fromEntries(
         })
     ]).filter(([, formats]) => formats.length)
 );
+const languageBase = language => String(language || '').toLowerCase().replace(/-(orig|org)$/, '').split('-')[0];
+/**
+ * Audio tracks from yt-dlp formats. A multi-audio video marks its source track with
+ * "original" in format_note (e.g. "Chinese (Traditional) original (default)"); the
+ * other tracks are dubs. Returns empty lists when no track is marked original, so
+ * single-audio videos are never affected.
+ */
+const getAudioTrackLanguages = metadata => {
+    const original = new Set();
+    const others = new Set();
+    for (const format of Array.isArray(metadata.formats) ? metadata.formats : []) {
+        if (!format || !format.language || !format.acodec || format.acodec === 'none') continue;
+        const isOriginal = /\boriginal\b/i.test(`${format.format_note || ''} ${format.format || ''}`);
+        (isOriginal ? original : others).add(String(format.language));
+    }
+    if (!original.size) return { original: [], dubbed: [] };
+    const originalBases = new Set([...original].map(languageBase));
+    return { original: [...original], dubbed: [...others].filter(language => !originalBases.has(languageBase(language))) };
+};
+const getDubbedAudioBases = metadata => new Set(getAudioTrackLanguages(metadata).dubbed.map(languageBase));
+const withoutDubbedLanguages = (captions, dubbedBases) => dubbedBases.size
+    ? Object.fromEntries(Object.entries(captions).filter(([language]) => !dubbedBases.has(languageBase(language))))
+    : captions;
+/**
+ * When no candidate exists only because every untranslated caption belongs to a dub,
+ * describe it so the caller can show a precise error instead of a generic one.
+ */
+const describeDubOnlyCaptions = metadata => {
+    const { original, dubbed } = getAudioTrackLanguages(metadata || {});
+    if (!dubbed.length || getCaptionCandidates(metadata).length) return null;
+    const dubbedBases = new Set(dubbed.map(languageBase));
+    const dubCaptionLanguages = [
+        ...Object.keys(getUntranslatedCaptions(metadata.automatic_captions)),
+        ...Object.keys(getUntranslatedCaptions(metadata.subtitles)),
+    ].filter(language => isUsableCaptionLanguage(language) && dubbedBases.has(languageBase(language)));
+    return dubCaptionLanguages.length ? { originalLanguages: original, dubCaptionLanguages: [...new Set(dubCaptionLanguages)] } : null;
+};
 const getCaptionCandidates = metadata => {
     const candidates = [];
     const seen = new Set();
-    const automatic = getUntranslatedCaptions(metadata.automatic_captions);
+    // Captions in the language of a dubbed audio track transcribe the dub, not the
+    // original speech (e.g. 95nq5nY1W_I: zh-Hant original + AI en-US dub, YouTube
+    // only generated ASR for the dub). Never return them.
+    const dubbedBases = getDubbedAudioBases(metadata);
+    const automatic = withoutDubbedLanguages(getUntranslatedCaptions(metadata.automatic_captions), dubbedBases);
+    const subtitles = withoutDubbedLanguages(getUntranslatedCaptions(metadata.subtitles), dubbedBases);
     const sourceLanguages = Object.keys(automatic).filter(isUsableCaptionLanguage);
     // Audio metadata can describe a localized dub. A caption URL without tlang
     // identifies the speech track, whereas tlang explicitly requests a translation.
@@ -73,7 +115,7 @@ const getCaptionCandidates = metadata => {
         : metadata;
     // Uploaded subtitles may contain only an outro; prefer speech captions
     // in the original language before falling back to uploaded subtitles.
-    for (const captions of [automatic, getUntranslatedCaptions(metadata.subtitles)]) {
+    for (const captions of [automatic, subtitles]) {
         const language = sourceLanguage
             ? findMatchingCaptionLanguage(Object.keys(captions), selectionMetadata.original_language)
             : pickOriginalCaptionLanguage(captions, selectionMetadata);
@@ -94,4 +136,4 @@ const getCaptionCandidates = metadata => {
     return candidates;
 };
 
-module.exports = { getCaptionCandidates };
+module.exports = { getCaptionCandidates, describeDubOnlyCaptions };
